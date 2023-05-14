@@ -8,11 +8,25 @@ pub struct Solver;
 impl Solver {
     /// Predicts the sequence of optimal moves to resolve the conflict,
     /// in favor of the initiating party.
+    ///
+    /// ## Arguments
+    /// * `conflict` - The conflict situation to resolve.
+    ///
+    /// ## Returns
+    /// The [`Outcome`] of the conflict.
     pub fn engage(conflict: Conflict) -> Outcome {
         let max_depth = 5; // TODO: arbitrarily chosen number
         Self::minimax(conflict, max_depth)
     }
 
+    /// Uses the minimax algorithm to find the optimal outcome.
+    ///
+    /// ## Arguments
+    /// * `conflict` - The conflict situation to resolve.
+    /// * `max_depth` - The maximum search depth in the tree. Can be used to limit search complexity.
+    ///
+    /// ## Returns
+    /// The [`Outcome`] of the conflict.
     fn minimax(conflict: Conflict, max_depth: usize) -> Outcome {
         // We start with a maximizing step, so the value is
         // initialized to negative infinity.
@@ -32,7 +46,10 @@ impl Solver {
             // The clone here is a hack to get around borrowing rules.
             let mut node = nodes[id].clone();
 
-            // TODO: Test if this is terminal; if so, update the value.
+            // If this is a terminal node we either have a winner or loser.
+            // TODO: We may decide to stop searching if the initiating party wins or decide to find the best possible outcome.
+            //       Since all of minimax assumes both players play optimally, selecting the optimal win (i.e. the highest
+            //       possible value) may give more tolerance for erratic behavior of the opponent.
             if let Some(value) = Self::get_utility(&node.state) {
                 // Update the value in the nodes set first before iterating.
                 node.value = value;
@@ -41,139 +58,13 @@ impl Solver {
                 continue 'dfs;
             }
 
-            // TODO: Also terminate iteration if node.depth == 0
+            // Also terminate iteration if the look-ahead depth is reached.
             if node.depth == 0 {
                 Self::propagate_values(&mut nodes, &mut node);
                 continue 'dfs;
             }
 
-            if node.is_maximizing {
-                debug_assert_eq!(node.state.turn & 1, 0);
-                let current = &node.state.initiator;
-                let opponent = &node.state.opponent;
-
-                // Collect all child IDs to later update the node.
-                let mut child_ids = Vec::default();
-
-                // Members take actions in turns.
-                for member in &current.members {
-                    // Each member can perform a variety of actions.
-                    for action in member.actions() {
-                        // Each action can target an opponent or a party member.
-                        // TODO: An endless cycle may occur if we choose to heal opponents if that effects the utility (e.g. XP collected).
-                        for target in &opponent.members {
-                            let target_id = target.id;
-
-                            // TODO: Optimize state creation - only clone when action was applied.
-                            let mut target = target.clone();
-                            if !target.handle_action(&action) {
-                                continue;
-                            }
-
-                            // Branch off and replace the member with the updated state.
-                            let mut opponent = opponent.clone();
-                            opponent.replace_member(target);
-
-                            // Create a new branch on the board.
-                            let state = Conflict {
-                                initiator: current.clone(),
-                                opponent,
-                                turn: node.state.turn + 1,
-                            };
-
-                            // Create a new node in the game tree.
-                            let node = Node {
-                                id: nodes.len(),
-                                parent_id: Some(node.id),
-                                child_ids: Vec::default(),
-                                value: f32::INFINITY,
-                                depth: node.depth - 1,
-                                is_maximizing: false,
-                                action: Some(AppliedAction {
-                                    action: action.clone(),
-                                    target: ActionTarget {
-                                        party_id: current.id,
-                                        member_id: target_id,
-                                    },
-                                }),
-                                state,
-                            };
-
-                            child_ids.push(node.id);
-                            dfs_queue.push_back(node.id);
-                            nodes.push(node);
-                        }
-
-                        // TODO: We can also target ourselves.
-                    }
-                }
-
-                // Append the newly generated child IDs to the current node.
-                node.child_ids.append(&mut child_ids);
-            } else {
-                debug_assert_eq!(node.state.turn & 1, 1);
-                let current = &node.state.opponent;
-                let opponent = &node.state.initiator;
-
-                // Collect all child IDs to later update the node.
-                let mut child_ids = Vec::default();
-
-                // Members take actions in turns.
-                for member in &current.members {
-                    // Each member can perform a variety of actions.
-                    for action in member.actions() {
-                        // Each action can target an opponent or a party member.
-                        // TODO: An endless cycle may occur if we choose to heal opponents if that effects the utility (e.g. XP collected).
-                        for target in &opponent.members {
-                            let target_id = target.id;
-
-                            // TODO: Optimize state creation - only clone when action was applied.
-                            let mut target = target.clone();
-                            if !target.handle_action(&action) {
-                                continue;
-                            }
-
-                            // Branch off and replace the member with the updated state.
-                            let mut opponent = opponent.clone();
-                            opponent.replace_member(target);
-
-                            // Create a new branch on the board.
-                            let state = Conflict {
-                                initiator: opponent,
-                                opponent: current.clone(),
-                                turn: node.state.turn + 1,
-                            };
-
-                            // Create a new node in the game tree.
-                            let node = Node {
-                                id: nodes.len(),
-                                parent_id: Some(node.id),
-                                child_ids: Vec::default(),
-                                value: f32::NEG_INFINITY,
-                                depth: node.depth - 1,
-                                is_maximizing: true,
-                                action: Some(AppliedAction {
-                                    action: action.clone(),
-                                    target: ActionTarget {
-                                        party_id: current.id,
-                                        member_id: target_id,
-                                    },
-                                }),
-                                state,
-                            };
-
-                            child_ids.push(node.id);
-                            dfs_queue.push_back(node.id);
-                            nodes.push(node);
-                        }
-
-                        // TODO: We can also target ourselves.
-                    }
-                }
-
-                // Append the newly generated child IDs to the current node.
-                node.child_ids.append(&mut child_ids);
-            }
+            let node = Self::minimax_expand(node, &mut nodes, &mut dfs_queue);
 
             // Replace the node in the original array with our clone.
             let node_id = node.id;
@@ -181,6 +72,103 @@ impl Solver {
         }
 
         Self::backtrack(nodes)
+    }
+
+    /// Implements the minimax recursion as an expansion of the search tree.
+    fn minimax_expand(
+        mut node: Node,
+        nodes: &mut Vec<Node>,
+        frontier: &mut VecDeque<usize>,
+    ) -> Node {
+        debug_assert_eq!(node.state.turn & 1, !node.is_maximizing as _);
+
+        // Select the currently active party.
+        let current = if node.is_maximizing {
+            &node.state.initiator
+        } else {
+            &node.state.opponent
+        };
+
+        // Select the current opponent.
+        let opponent = if node.is_maximizing {
+            &node.state.opponent
+        } else {
+            &node.state.initiator
+        };
+
+        // Collect all child IDs to later update the node.
+        let mut child_ids = Vec::default();
+
+        // Members take actions in turns.
+        for member in &current.members {
+            // Each member can perform a variety of actions.
+            for action in member.actions() {
+                // Each action can target an opponent or a party member.
+                // TODO: An endless cycle may occur if we choose to heal opponents if that effects the utility (e.g. XP collected).
+                for target in &opponent.members {
+                    let target_id = target.id;
+
+                    // TODO: Optimize state creation - only clone when action was applied.
+                    let mut target = target.clone();
+                    if !target.handle_action(&action) {
+                        continue;
+                    }
+
+                    // Branch off and replace the member with the updated state.
+                    let mut opponent = opponent.clone();
+                    opponent.replace_member(target);
+
+                    // Create a new branch on the board.
+                    let state = if node.is_maximizing {
+                        Conflict {
+                            initiator: current.clone(),
+                            opponent,
+                            turn: node.state.turn + 1,
+                        }
+                    } else {
+                        Conflict {
+                            initiator: opponent,
+                            opponent: current.clone(),
+                            turn: node.state.turn + 1,
+                        }
+                    };
+
+                    // Create a new node in the game tree.
+                    let node = Node {
+                        id: nodes.len(),
+                        parent_id: Some(node.id),
+                        child_ids: Vec::default(),
+                        is_maximizing: !node.is_maximizing,
+                        value: if node.is_maximizing {
+                            // A minimizing node's starting value is positive infinity.
+                            f32::INFINITY
+                        } else {
+                            // A maximizing node's starting value is negative infinity.
+                            f32::NEG_INFINITY
+                        },
+                        depth: node.depth - 1,
+                        action: Some(AppliedAction {
+                            action: action.clone(),
+                            target: ActionTarget {
+                                party_id: current.id,
+                                member_id: target_id,
+                            },
+                        }),
+                        state,
+                    };
+
+                    child_ids.push(node.id);
+                    frontier.push_back(node.id);
+                    nodes.push(node);
+                }
+
+                // TODO: We can also target ourselves.
+            }
+        }
+
+        // Append the newly generated child IDs to the current node.
+        node.child_ids.append(&mut child_ids);
+        node
     }
 
     /// Backtracks the events from the start to one of the the most likely outcomes.
