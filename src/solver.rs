@@ -1,5 +1,7 @@
-use crate::conflict::{Conflict, Factions};
+use crate::action::{Action, ActionTarget, AppliedAction};
+use crate::conflict::Conflict;
 use crate::party::Party;
+use crate::party_member::PartyMember;
 use std::collections::VecDeque;
 
 pub struct Solver;
@@ -7,12 +9,12 @@ pub struct Solver;
 impl Solver {
     /// Predicts the sequence of optimal moves to resolve the conflict,
     /// in favor of the initiating party.
-    pub fn engage(conflict: Conflict) {
+    pub fn engage(conflict: Conflict) -> Outcome {
         let max_depth = 5; // TODO: arbitrarily chosen number
-        Self::minimax(conflict, max_depth);
+        Self::minimax(conflict, max_depth)
     }
 
-    fn minimax(conflict: Conflict, max_depth: usize) {
+    fn minimax(conflict: Conflict, max_depth: usize) -> Outcome {
         // We start with a maximizing step, so the value is
         // initialized to negative infinity.
         let mut nodes = vec![Node {
@@ -22,6 +24,7 @@ impl Solver {
             depth: max_depth,
             is_maximizing: true,
             value: f32::NEG_INFINITY,
+            action: None,
             state: conflict.clone(),
         }];
 
@@ -60,6 +63,8 @@ impl Solver {
                         // Each action can target an opponent or a party member.
                         // TODO: An endless cycle may occur if we choose to heal opponents if that effects the utility (e.g. XP collected).
                         for target in &opponent.members {
+                            let target_id = target.id;
+
                             // TODO: Optimize state creation - only clone when action was applied.
                             let mut target = target.clone();
                             if !target.handle_action(&action) {
@@ -85,6 +90,13 @@ impl Solver {
                                 value: f32::INFINITY,
                                 depth: node.depth - 1,
                                 is_maximizing: false,
+                                action: Some(AppliedAction {
+                                    action: action.clone(),
+                                    target: ActionTarget {
+                                        party_id: current.id,
+                                        member_id: target_id,
+                                    },
+                                }),
                                 state,
                             };
 
@@ -114,6 +126,8 @@ impl Solver {
                         // Each action can target an opponent or a party member.
                         // TODO: An endless cycle may occur if we choose to heal opponents if that effects the utility (e.g. XP collected).
                         for target in &opponent.members {
+                            let target_id = target.id;
+
                             // TODO: Optimize state creation - only clone when action was applied.
                             let mut target = target.clone();
                             if !target.handle_action(&action) {
@@ -139,6 +153,13 @@ impl Solver {
                                 value: f32::NEG_INFINITY,
                                 depth: node.depth - 1,
                                 is_maximizing: true,
+                                action: Some(AppliedAction {
+                                    action: action.clone(),
+                                    target: ActionTarget {
+                                        party_id: current.id,
+                                        member_id: target_id,
+                                    },
+                                }),
                                 state,
                             };
 
@@ -160,7 +181,58 @@ impl Solver {
             nodes[node_id] = node;
         }
 
-        todo!("searched full tree")
+        // The outcome is positive only if the value of the start
+        // node is positive and under the assumption that the opposing
+        // player attempts to play optimally.
+        let mut outcome = Outcome {
+            win: nodes[0].value > 0.0,
+            timeline: Vec::default(),
+        };
+
+        let mut node = &nodes[0];
+        let mut turn = 0;
+        'dfs: loop {
+            if node.value.is_finite() {
+                for child in &node.child_ids {
+                    let child = &nodes[*child];
+                    if child.value == node.value {
+                        outcome.timeline.push(Event {
+                            turn,
+                            action: child.action.clone().expect(""),
+                            state: child.state.clone(),
+                        });
+                        node = child;
+                        continue 'dfs;
+                    }
+                }
+            } else {
+                'child: for child in &node.child_ids {
+                    let child = &nodes[*child];
+                    if child.value.is_finite() {
+                        continue 'child;
+                    }
+
+                    let both_pos_inf =
+                        node.value.is_sign_positive() && child.value.is_sign_positive();
+                    let both_neg_inf =
+                        node.value.is_sign_negative() && child.value.is_sign_negative();
+                    if both_pos_inf || both_neg_inf {
+                        outcome.timeline.push(Event {
+                            turn,
+                            action: child.action.clone().expect(""),
+                            state: child.state.clone(),
+                        });
+                        node = child;
+                        continue 'dfs;
+                    }
+                }
+            }
+
+            // No matching child found. End of iteration.
+            break;
+        }
+
+        outcome
     }
 
     /// Propagates known terminal utility values upwards in the
@@ -168,6 +240,8 @@ impl Solver {
     fn propagate_values(nodes: &mut Vec<Node>, node: &Node) {
         let mut parent_id = node.parent_id;
         let mut child_id = node.id;
+        let mut outcome_changed = true;
+
         while let Some(id) = parent_id {
             // Note that the child value is only finite if we reached
             // a terminal state and will be ±infinite if the search
@@ -175,6 +249,8 @@ impl Solver {
             let child_value = nodes[child_id].value;
 
             let node = &mut nodes[id];
+            let old_value = node.value;
+
             if node.is_maximizing {
                 node.value = child_value.max(node.value);
             } else {
@@ -182,6 +258,16 @@ impl Solver {
             }
 
             // TODO: terminate propagation if value did not change.
+            if !outcome_changed {
+                // Here only for sanity checking. We'd like to terminate
+                // the upwards propagation instead.
+                debug_assert_eq!(
+                    node.value, old_value,
+                    "If the value started being unchanged, no new changes are introduced upstream."
+                );
+            } else if child_value.is_finite() && node.value == old_value {
+                outcome_changed = false;
+            }
 
             parent_id = node.parent_id;
             child_id = id;
@@ -227,14 +313,48 @@ impl Solver {
     }
 }
 
+/// An outcome of a conflict.
+pub struct Outcome {
+    /// Whether the initiating party wins the conflict.
+    pub win: bool,
+    /// An optimal path of actions leading to the outcome.
+    pub timeline: Vec<Event>,
+}
+
+/// An event in the timeline.
+pub struct Event {
+    /// The turn in which an event took place.
+    pub turn: usize,
+    /// The action that was applied.
+    pub action: AppliedAction,
+    /// The state of the conflict after the action took place.
+    pub state: Conflict,
+}
+
+/// A node in the game tree.
 #[derive(Debug, Clone)]
 struct Node {
+    /// The ID of the node; corresponds to the index of the node
+    /// in the vector of explored nodes.
     pub id: usize,
+    /// The ID of the node's immediate parent.
+    /// Is [`None`] only for the root node.
     pub parent_id: Option<usize>,
+    /// The IDs of the node's children. Only meaningful
+    /// if a terminal state was found, i.e. [`value`] is finite.
     pub child_ids: Vec<usize>,
+    /// The depth of the node. If it reaches zero, search is terminated.
     pub depth: usize,
+    /// Whether this is a maximizing or minimizing node in minimax.
+    /// If maximizing, the represents a move of the initiating party of the conflict.
     pub is_maximizing: bool,
+    /// The utility value of this node. Only meaningful if this is
+    /// a terminal node (i.e. win or loss for either side).
     pub value: f32,
+    /// The action taken to arrive at this node.
+    /// Is [`None`] only for the root node.
+    pub action: Option<AppliedAction>,
+    /// The state after applying the action.
     pub state: Conflict,
 }
 
