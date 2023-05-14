@@ -10,11 +10,3 @@ pub struct Conflict {
     /// The other involved party.
     pub opponent: Party,
 }
-
-/// A view on the factions.
-pub struct Factions<'a> {
-    /// The party whose turn it is.
-    pub current: &'a Party,
-    /// The other party.
-    pub opponent: &'a Party,
-}

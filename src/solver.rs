@@ -1,7 +1,6 @@
-use crate::action::{Action, ActionTarget, AppliedAction};
+use crate::action::{ActionTarget, AppliedAction};
 use crate::conflict::Conflict;
 use crate::party::Party;
-use crate::party_member::PartyMember;
 use std::collections::VecDeque;
 
 pub struct Solver;
@@ -181,6 +180,11 @@ impl Solver {
             nodes[node_id] = node;
         }
 
+        Self::backtrack(nodes)
+    }
+
+    /// Backtracks the events from the start to one of the the most likely outcomes.
+    fn backtrack(nodes: Vec<Node>) -> Outcome {
         // The outcome is positive only if the value of the start
         // node is positive and under the assumption that the opposing
         // player attempts to play optimally.
@@ -192,47 +196,31 @@ impl Solver {
         let mut node = &nodes[0];
         let mut turn = 0;
         'dfs: loop {
-            if node.value.is_finite() {
-                for child in &node.child_ids {
-                    let child = &nodes[*child];
-                    if child.value == node.value {
-                        outcome.timeline.push(Event {
-                            turn,
-                            action: child.action.clone().expect(""),
-                            state: child.state.clone(),
-                        });
-                        node = child;
-                        continue 'dfs;
-                    }
+            'child: for child in &node.child_ids {
+                let child = &nodes[*child];
+                if !Self::values_equal(&child, &node) {
+                    continue 'child;
                 }
-            } else {
-                'child: for child in &node.child_ids {
-                    let child = &nodes[*child];
-                    if child.value.is_finite() {
-                        continue 'child;
-                    }
 
-                    let both_pos_inf =
-                        node.value.is_sign_positive() && child.value.is_sign_positive();
-                    let both_neg_inf =
-                        node.value.is_sign_negative() && child.value.is_sign_negative();
-                    if both_pos_inf || both_neg_inf {
-                        outcome.timeline.push(Event {
-                            turn,
-                            action: child.action.clone().expect(""),
-                            state: child.state.clone(),
-                        });
-                        node = child;
-                        continue 'dfs;
-                    }
-                }
+                outcome.timeline.push(Event {
+                    turn,
+                    action: child.action.clone().expect(""),
+                    state: child.state.clone(),
+                });
+                node = child;
+                turn += 1;
+                continue 'dfs;
             }
 
             // No matching child found. End of iteration.
             break;
         }
-
         outcome
+    }
+
+    /// Test if two [`Node`] entries have the same finite value or the same infinity.
+    fn values_equal(lhs: &Node, rhs: &Node) -> bool {
+        lhs.value == rhs.value
     }
 
     /// Propagates known terminal utility values upwards in the
@@ -393,5 +381,13 @@ mod tests {
         };
 
         Solver::engage(conflict);
+    }
+
+    #[test]
+    fn same_value_works() {
+        assert_eq!(f32::INFINITY, f32::INFINITY);
+        assert_eq!(f32::NEG_INFINITY, f32::NEG_INFINITY);
+        assert_ne!(f32::INFINITY, f32::NEG_INFINITY);
+        assert_ne!(f32::NEG_INFINITY, f32::INFINITY);
     }
 }
