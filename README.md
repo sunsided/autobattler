@@ -1,11 +1,18 @@
 # Turn-based Auto-battling Experiments
 
-This is a toy project for experimenting with game strategies
-in a turn-based combat game. More minimax than AlphaZero.
+This is a toy project for experimenting with game strategies in a turn-based combat,
+akin to fights in role-playing games like Might & Magic 3/4/5, Eye of the Beholder,
+Bard's Tale, etc.
+
+... with the twist of having ✨Artificial✨Intelligence✨ select your turns.
+
+---
+
+This is definitely not rocket science being done here. Expect more minimax than AlphaZero.
 
 ## Things to do
 
-- [x] Simple minimax.
+- [x] Regular minimax.
 - [x] Minimax with multiple turns per party.
 - [ ] Add Alpha-Beta pruning to the mix.
 
