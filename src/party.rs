@@ -9,6 +9,15 @@ pub struct Party {
     pub members: Vec<PartyMember>,
 }
 
+/// A participant.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct Participant {
+    /// The ID of the targeted party.
+    pub party_id: usize,
+    /// The ID of the targeted member in the party.
+    pub member_id: usize,
+}
+
 impl Party {
     /// Returns `true` if the party is defeated.
     ///
@@ -28,5 +37,10 @@ impl Party {
                 break;
             }
         }
+    }
+
+    /// Returns the size of the party.
+    pub fn len(&self) -> usize {
+        self.members.len()
     }
 }

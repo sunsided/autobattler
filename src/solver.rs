@@ -1,6 +1,6 @@
-use crate::action::{ActionTarget, AppliedAction};
+use crate::action::AppliedAction;
 use crate::conflict::Conflict;
-use crate::party::Party;
+use crate::party::Participant;
 use std::collections::VecDeque;
 
 pub struct Solver;
@@ -14,7 +14,7 @@ impl Solver {
     ///
     /// ## Returns
     /// The [`Outcome`] of the conflict.
-    pub fn engage(conflict: Conflict) -> Outcome {
+    pub fn engage(conflict: &Conflict) -> Outcome {
         let max_depth = 5; // TODO: arbitrarily chosen number
         Self::minimax(conflict, max_depth)
     }
@@ -27,7 +27,7 @@ impl Solver {
     ///
     /// ## Returns
     /// The [`Outcome`] of the conflict.
-    fn minimax(conflict: Conflict, max_depth: usize) -> Outcome {
+    fn minimax(conflict: &Conflict, max_depth: usize) -> Outcome {
         // We start with a maximizing step, so the value is
         // initialized to negative infinity.
         let mut nodes = vec![Node {
@@ -100,11 +100,15 @@ impl Solver {
         let mut child_ids = Vec::default();
 
         // Members take actions in turns.
+        let source_party_id = current.id;
         for member in &current.members {
+            let member_id = member.id;
+
             // Each member can perform a variety of actions.
             for action in member.actions() {
                 // Each action can target an opponent or a party member.
                 // TODO: An endless cycle may occur if we choose to heal opponents if that effects the utility (e.g. XP collected).
+                let target_party_id = opponent.id;
                 for target in &opponent.members {
                     let target_id = target.id;
 
@@ -149,8 +153,12 @@ impl Solver {
                         depth: node.depth - 1,
                         action: Some(AppliedAction {
                             action: action.clone(),
-                            target: ActionTarget {
-                                party_id: current.id,
+                            source: Participant {
+                                party_id: source_party_id,
+                                member_id,
+                            },
+                            target: Participant {
+                                party_id: target_party_id,
                                 member_id: target_id,
                             },
                         }),
@@ -176,8 +184,17 @@ impl Solver {
         // The outcome is positive only if the value of the start
         // node is positive and under the assumption that the opposing
         // player attempts to play optimally.
+        let value = nodes[0].value;
+        let outcome = if value.is_infinite() {
+            OutcomeType::Unknown
+        } else if value >= 0.0 {
+            OutcomeType::Win(value)
+        } else {
+            OutcomeType::Lose(value)
+        };
+
         let mut outcome = Outcome {
-            win: nodes[0].value > 0.0,
+            outcome,
             timeline: Vec::default(),
         };
 
@@ -192,6 +209,7 @@ impl Solver {
 
                 outcome.timeline.push(Event {
                     turn,
+                    is_initiator_turn: node.is_maximizing,
                     action: child.action.clone().expect(""),
                     state: child.state.clone(),
                 });
@@ -292,15 +310,27 @@ impl Solver {
 /// An outcome of a conflict.
 pub struct Outcome {
     /// Whether the initiating party wins the conflict.
-    pub win: bool,
+    pub outcome: OutcomeType,
     /// An optimal path of actions leading to the outcome.
     pub timeline: Vec<Event>,
+}
+
+/// The type of outcome.
+pub enum OutcomeType {
+    /// The initiating party wins.
+    Win(f32),
+    /// The initiating party loses.
+    Lose(f32),
+    /// Unknown outcome.
+    Unknown,
 }
 
 /// An event in the timeline.
 pub struct Event {
     /// The turn in which an event took place.
     pub turn: usize,
+    /// Whether this turn is performed by the initiating party.
+    pub is_initiator_turn: bool,
     /// The action that was applied.
     pub action: AppliedAction,
     /// The state of the conflict after the action took place.
@@ -337,6 +367,7 @@ struct Node {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::party::Party;
     use crate::party_member::PartyMember;
     use crate::weapon::{Stick, Weapon};
 
@@ -368,7 +399,7 @@ mod tests {
             opponent: villains,
         };
 
-        Solver::engage(conflict);
+        Solver::engage(&conflict);
     }
 
     #[test]
