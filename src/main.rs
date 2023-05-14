@@ -15,13 +15,15 @@ mod solver;
 mod weapon;
 
 fn main() {
+    env_logger::init();
+
     let heroes = Party {
         id: 0,
         members: vec![PartyMember {
             id: 0,
-            health: 25.0,
+            health: 20.0,
             damage_taken: 0.0,
-            weapon: Weapon::Stick(Stick { damage: 11.0 }),
+            weapon: Weapon::Fists(Fists { damage: 10.0 }),
         }],
     };
 
@@ -35,16 +37,14 @@ fn main() {
                 id: 0,
                 health: 15.0,
                 damage_taken: 0.0,
-                weapon: Weapon::Stick(Stick { damage: 10.0 }),
+                weapon: Weapon::Stick(Stick { damage: 5.0 }),
             },
-            /*
             PartyMember {
                 id: 1,
-                health: 15.0,
+                health: 10.0,
                 damage_taken: 0.0,
-                weapon: Weapon::Fists(Fists { damage: 1.0 }),
+                weapon: Weapon::Fists(Fists { damage: 20.0 }),
             },
-            */
         ],
     };
 
@@ -88,7 +88,7 @@ fn main() {
             "- {}, with {} health and {}",
             name.blue(),
             member.health,
-            format!("{:?}", member.weapon).yellow()
+            format!("{:#?}", member.weapon).yellow()
         );
     }
 
@@ -99,13 +99,17 @@ fn main() {
             "- {}, with {} health and {}",
             name.purple(),
             member.health,
-            format!("{:?}", member.weapon).yellow()
+            format!("{:#?}", member.weapon).yellow()
         );
     }
 
     let initiator_party = conflict.initiator.id;
     for event in outcome.timeline {
-        println!("\nTurn {}:", format!("{}", event.turn).bright_white());
+        println!(
+            "\nTurn {} (discovered at step {}):",
+            format!("{}", event.turn).bright_white(),
+            event.depth
+        );
 
         match event.action.action {
             Action::SimpleAttack(attack) => {

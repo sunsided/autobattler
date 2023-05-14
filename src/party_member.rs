@@ -4,7 +4,7 @@ use crate::weapon::Weapon;
 /// A party member.
 #[derive(Debug, Clone)]
 pub struct PartyMember {
-    /// The ID of the party member. Must be unique within the party.
+    /// The ID of the party member. Must be uniformly increasing and unique within the party.
     pub id: usize,
     /// The amount of health. If health reaches zero, the member is dead.
     pub health: f32,

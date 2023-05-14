@@ -26,8 +26,24 @@ pub struct Stick {
 impl Debug for Weapon {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Weapon::Stick(_) => write!(f, "a stick"),
-            Weapon::Fists(_) => write!(f, "their fists"),
+            Weapon::Stick(item) => write!(
+                f,
+                "a stick{}",
+                if f.alternate() {
+                    format!(" ({} damage)", item.damage)
+                } else {
+                    String::default()
+                }
+            ),
+            Weapon::Fists(item) => write!(
+                f,
+                "their fists{}",
+                if f.alternate() {
+                    format!(" ({} damage)", item.damage)
+                } else {
+                    String::default()
+                }
+            ),
         }
     }
 }

@@ -1,6 +1,8 @@
 use crate::action::AppliedAction;
 use crate::conflict::Conflict;
 use crate::party::Participant;
+use crate::party_member::PartyMember;
+use log::trace;
 use std::collections::VecDeque;
 
 pub struct Solver;
@@ -36,6 +38,7 @@ impl Solver {
             child_ids: Vec::default(),
             depth: max_depth,
             turn: 0,
+            continue_with_member: 0,
             is_maximizing: true,
             value: f32::NEG_INFINITY,
             best_child: None,
@@ -70,14 +73,18 @@ impl Solver {
                 continue 'dfs;
             }
 
-            let node = Self::minimax_expand(node, &mut nodes, &mut dfs_queue);
+            trace!("Exploring node {} at depth {}", node.id, node.depth);
+            let node = match Self::minimax_expand(node, &mut nodes, &mut dfs_queue) {
+                None => continue 'dfs,
+                Some(node) => node,
+            };
 
             // Replace the node in the original array with our clone.
             let node_id = node.id;
             nodes[node_id] = node;
         }
 
-        Self::backtrack(nodes)
+        Self::backtrack(nodes, max_depth)
     }
 
     /// Implements the minimax recursion as an expansion of the search tree.
@@ -85,9 +92,7 @@ impl Solver {
         mut node: Node,
         nodes: &mut Vec<Node>,
         frontier: &mut VecDeque<usize>,
-    ) -> Node {
-        debug_assert_eq!(node.state.turn & 1, !node.is_maximizing as _);
-
+    ) -> Option<Node> {
         // Select the currently active party.
         let current = if node.is_maximizing {
             &node.state.initiator
@@ -107,13 +112,29 @@ impl Solver {
 
         // Members take actions in turns.
         let source_party_id = current.id;
-        for member in &current.members {
+
+        let members: Vec<_> = current
+            .members
+            .iter()
+            .filter(|&m| m.id >= node.continue_with_member)
+            .filter(|&m| !m.is_dead())
+            .collect();
+
+        // Not all members can be dead, as that was checked before, but we could have
+        // exhausted our party's moves.
+        let last_id = match members.last() {
+            None => return None,
+            Some(node) => node.id,
+        };
+
+        for member in members {
             // Only alive members are allowed to play.
             if member.is_dead() {
                 continue;
             }
 
             let member_id = member.id;
+            let is_last_in_party = last_id == member_id;
 
             // Each member can perform a variety of actions.
             for action in member.actions() {
@@ -153,34 +174,64 @@ impl Solver {
                         }
                     };
 
-                    // Create a new node in the game tree.
-                    let node = Node {
-                        id: nodes.len(),
-                        parent_id: Some(node.id),
-                        child_ids: Vec::default(),
-                        is_maximizing: !node.is_maximizing,
-                        value: if node.is_maximizing {
-                            // A minimizing node's starting value is positive infinity.
-                            f32::INFINITY
-                        } else {
-                            // A maximizing node's starting value is negative infinity.
-                            f32::NEG_INFINITY
-                        },
-                        best_child: None,
-                        depth: node.depth - 1,
-                        turn: node.turn + 1,
-                        action: Some(AppliedAction {
-                            action: action.clone(),
-                            source: Participant {
-                                party_id: source_party_id,
-                                member_id,
+                    // If this is not the last member in the party we need to chain more
+                    // moves. This will create multiple maximize/minimize layers in the tree.
+                    let node = if is_last_in_party {
+                        // Create a new node in the game tree.
+                        Node {
+                            id: nodes.len(),
+                            parent_id: Some(node.id),
+                            child_ids: Vec::default(),
+                            is_maximizing: !node.is_maximizing,
+                            value: if node.is_maximizing {
+                                // A minimizing node's starting value is positive infinity.
+                                f32::INFINITY
+                            } else {
+                                // A maximizing node's starting value is negative infinity.
+                                f32::NEG_INFINITY
                             },
-                            target: Participant {
-                                party_id: target_party_id,
-                                member_id: target_id,
-                            },
-                        }),
-                        state,
+                            best_child: None,
+                            depth: node.depth - 1,
+                            turn: node.turn + 1,
+                            continue_with_member: 0,
+                            action: Some(AppliedAction {
+                                action: action.clone(),
+                                source: Participant {
+                                    party_id: source_party_id,
+                                    member_id,
+                                },
+                                target: Participant {
+                                    party_id: target_party_id,
+                                    member_id: target_id,
+                                },
+                            }),
+                            state,
+                        }
+                    } else {
+                        // Create a new node in the game tree.
+                        Node {
+                            id: nodes.len(),
+                            parent_id: Some(node.id),
+                            child_ids: Vec::default(),
+                            is_maximizing: node.is_maximizing,
+                            value: node.value,
+                            best_child: node.best_child,
+                            depth: node.depth + 1,
+                            turn: node.turn + 1,
+                            continue_with_member: member_id + 1,
+                            action: Some(AppliedAction {
+                                action: action.clone(),
+                                source: Participant {
+                                    party_id: source_party_id,
+                                    member_id,
+                                },
+                                target: Participant {
+                                    party_id: target_party_id,
+                                    member_id: target_id,
+                                },
+                            }),
+                            state,
+                        }
                     };
 
                     child_ids.push(node.id);
@@ -190,15 +241,20 @@ impl Solver {
 
                 // TODO: We can also target ourselves.
             }
+
+            // Ensure we expand only one party member at a time.
+            if !is_last_in_party {
+                break;
+            }
         }
 
         // Append the newly generated child IDs to the current node.
         node.child_ids.append(&mut child_ids);
-        node
+        Some(node)
     }
 
     /// Backtracks the events from the start to one of the the most likely outcomes.
-    fn backtrack(nodes: Vec<Node>) -> Outcome {
+    fn backtrack(nodes: Vec<Node>, max_depth: usize) -> Outcome {
         // The outcome is positive only if the value of the start
         // node is positive and under the assumption that the opposing
         // player attempts to play optimally.
@@ -220,6 +276,7 @@ impl Solver {
                 is_initiator_turn: node.is_maximizing,
                 action: node.action.clone().expect(""),
                 state: node.state.clone(),
+                depth: max_depth - node.depth,
             });
 
             if let Some(parent_id) = node.parent_id {
@@ -358,6 +415,8 @@ pub struct Event {
     pub is_initiator_turn: bool,
     /// The action that was applied.
     pub action: AppliedAction,
+    /// The depth at which this node was discovered.
+    pub depth: usize,
     /// The state of the conflict after the action took place.
     pub state: Conflict,
 }
@@ -378,6 +437,8 @@ struct Node {
     pub turn: usize,
     /// The depth of the node. If it reaches zero, search is terminated.
     pub depth: usize,
+    /// The member with whose ID we wish to continue to explore the tree.
+    pub continue_with_member: usize,
     /// Whether this is a maximizing or minimizing node in minimax.
     /// If maximizing, the represents a move of the initiating party of the conflict.
     pub is_maximizing: bool,

@@ -3,38 +3,52 @@
 This is a toy project for experimenting with game strategies
 in a turn-based combat game. More minimax than AlphaZero.
 
+## Things to do
+
+- [x] Simple minimax.
+- [x] Minimax with multiple turns per party.
+- [ ] Add Alpha-Beta pruning to the mix.
+
 ## Example outcome
 
-A naive example may play out like this:
+The following is an example of how it may unfold.
+
+The hero party, consisting of _Harubs_, as well as the enemy party, consisting of _Denah_ and _Peoul_. 
+_Denah_ deals only 5 damage with their stick, but _Peoul_ deals 20 with their fists, which will take
+_Harubs_ out in one hit. Regardless of _Peoul_ being the third one to move, the only viable option is
+for _Heoul_ to attack _Peoul_ first to ensure they can never make a move to begin with.
+
+That is indeed what happens:
 
 ```
-TL;DR: The initiating party wins with a score of 5.
+TL;DR: The initiating party wins with a score of 10.
 
 On the attacking side:
-- Agol, with 25 health
+- Harubs, with 20 health and their fists (10 damage)
 
 On the defending side:
-- Örshashee, with 25 health
-
-Turn 0:
-  Agol whacks Örshashee with a stick, dealing 10 damage
-   ⇒ Örshashee now has 15 health
+- Denah, with 15 health and a stick (5 damage)
+- Peoul, with 10 health and their fists (20 damage)
 
 Turn 1:
-  Örshashee whacks Agol with a stick, dealing 10 damage
-   ⇒ Agol now has 15 health
+  Harubs whacks Peoul with their fists, dealing 10 damage
+   ⇒ Peoul has given up on being alive
 
 Turn 2:
-  Agol whacks Örshashee with a stick, dealing 10 damage
-   ⇒ Örshashee now has 5 health
+  Denah whacks Harubs with a stick, dealing 5 damage
+   ⇒ Harubs now has 15 health
 
 Turn 3:
-  Örshashee whacks Agol with a stick, dealing 10 damage
-   ⇒ Agol now has 5 health
+  Harubs whacks Denah with their fists, dealing 10 damage
+   ⇒ Denah now has 5 health
 
 Turn 4:
-  Agol whacks Örshashee with a stick, dealing 10 damage
-   ⇒ Örshashee has given up on being alive
+  Denah whacks Harubs with a stick, dealing 5 damage
+   ⇒ Harubs now has 10 health
+
+Turn 5:
+  Harubs whacks Denah with their fists, dealing 10 damage
+   ⇒ Denah has given up on being alive
 ```
 
 ## Rules of ~~Engagement~~ the Game
