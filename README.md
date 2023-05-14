@@ -14,16 +14,17 @@ This is definitely not rocket science being done here. Expect more minimax than 
 
 - [x] Regular minimax.
 - [x] Minimax with multiple turns per party.
-- [ ] Add Alpha-Beta pruning to the mix.
+- [ ] Implement Iterative Deepening.
+- [ ] Implement Alpha-Beta pruning.
 
 ## Example outcome
 
 The following is an example of how it may unfold.
 
-The hero party, consisting of _Harubs_, as well as the enemy party, consisting of _Denah_ and _Peoul_. 
+We see the hero party, consisting of _Harubs_, as well as the enemy party, consisting of _Denah_ and _Peoul_. 
 _Denah_ deals only 5 damage with their stick, but _Peoul_ deals 20 with their fists, which will take
 _Harubs_ out in one hit. Regardless of _Peoul_ being the third one to move, the only viable option is
-for _Heoul_ to attack _Peoul_ first to ensure they can never make a move to begin with.
+for _Harubs_ to attack _Peoul_ first to ensure they can never make a move to begin with.
 
 That is indeed what happens:
 

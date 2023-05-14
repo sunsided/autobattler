@@ -1,7 +1,6 @@
 use crate::action::AppliedAction;
 use crate::conflict::Conflict;
 use crate::party::Participant;
-use crate::party_member::PartyMember;
 use log::trace;
 use std::collections::VecDeque;
 
@@ -32,19 +31,7 @@ impl Solver {
     fn minimax(conflict: &Conflict, max_depth: usize) -> Outcome {
         // We start with a maximizing step, so the value is
         // initialized to negative infinity.
-        let mut nodes = vec![Node {
-            id: 0,
-            parent_id: None,
-            child_ids: Vec::default(),
-            depth: max_depth,
-            turn: 0,
-            continue_with_member: 0,
-            is_maximizing: true,
-            value: f32::NEG_INFINITY,
-            best_child: None,
-            action: None,
-            state: conflict.clone(),
-        }];
+        let mut nodes = vec![Node::new_root(conflict.clone(), max_depth)];
 
         let mut dfs_queue = VecDeque::from([0]);
         'dfs: while let Some(id) = dfs_queue.pop_front() {
@@ -174,64 +161,25 @@ impl Solver {
                         }
                     };
 
+                    // The action to apply.
+                    let action = AppliedAction {
+                        action: action.clone(),
+                        source: Participant {
+                            party_id: source_party_id,
+                            member_id,
+                        },
+                        target: Participant {
+                            party_id: target_party_id,
+                            member_id: target_id,
+                        },
+                    };
+
                     // If this is not the last member in the party we need to chain more
                     // moves. This will create multiple maximize/minimize layers in the tree.
                     let node = if is_last_in_party {
-                        // Create a new node in the game tree.
-                        Node {
-                            id: nodes.len(),
-                            parent_id: Some(node.id),
-                            child_ids: Vec::default(),
-                            is_maximizing: !node.is_maximizing,
-                            value: if node.is_maximizing {
-                                // A minimizing node's starting value is positive infinity.
-                                f32::INFINITY
-                            } else {
-                                // A maximizing node's starting value is negative infinity.
-                                f32::NEG_INFINITY
-                            },
-                            best_child: None,
-                            depth: node.depth - 1,
-                            turn: node.turn + 1,
-                            continue_with_member: 0,
-                            action: Some(AppliedAction {
-                                action: action.clone(),
-                                source: Participant {
-                                    party_id: source_party_id,
-                                    member_id,
-                                },
-                                target: Participant {
-                                    party_id: target_party_id,
-                                    member_id: target_id,
-                                },
-                            }),
-                            state,
-                        }
+                        Node::next_party(nodes.len(), &node, state, action)
                     } else {
-                        // Create a new node in the game tree.
-                        Node {
-                            id: nodes.len(),
-                            parent_id: Some(node.id),
-                            child_ids: Vec::default(),
-                            is_maximizing: node.is_maximizing,
-                            value: node.value,
-                            best_child: node.best_child,
-                            depth: node.depth + 1,
-                            turn: node.turn + 1,
-                            continue_with_member: member_id + 1,
-                            action: Some(AppliedAction {
-                                action: action.clone(),
-                                source: Participant {
-                                    party_id: source_party_id,
-                                    member_id,
-                                },
-                                target: Participant {
-                                    party_id: target_party_id,
-                                    member_id: target_id,
-                                },
-                            }),
-                            state,
-                        }
+                        Node::next_in_same_party(nodes.len(), &node, state, member_id, action)
                     };
 
                     child_ids.push(node.id);
@@ -296,11 +244,6 @@ impl Solver {
             outcome,
             timeline: stack.into_iter().rev().collect(),
         }
-    }
-
-    /// Test if two [`Node`] entries have the same finite value or the same infinity.
-    fn values_equal(lhs: &Node, rhs: &Node) -> bool {
-        lhs.value == rhs.value
     }
 
     /// Propagates known terminal utility values upwards in the
@@ -452,6 +395,74 @@ struct Node {
     pub action: Option<AppliedAction>,
     /// The state after applying the action.
     pub state: Conflict,
+}
+
+impl Node {
+    /// Creates a new root node.
+    pub fn new_root(conflict: Conflict, max_depth: usize) -> Self {
+        Self {
+            id: 0,
+            parent_id: None,
+            child_ids: Vec::default(),
+            depth: max_depth,
+            turn: 0,
+            continue_with_member: 0,
+            is_maximizing: true,
+            value: f32::NEG_INFINITY,
+            best_child: None,
+            action: None,
+            state: conflict,
+        }
+    }
+
+    /// Ends this party's turn and by changing from maximizing to minimizing
+    /// and vice versa.
+    pub fn next_party(id: usize, node: &Node, state: Conflict, action: AppliedAction) -> Self {
+        Self {
+            id,
+            parent_id: Some(node.id),
+            child_ids: Vec::default(),
+            is_maximizing: !node.is_maximizing,
+            value: if node.is_maximizing {
+                // A minimizing node's starting value is positive infinity.
+                f32::INFINITY
+            } else {
+                // A maximizing node's starting value is negative infinity.
+                f32::NEG_INFINITY
+            },
+            best_child: None,
+            depth: node.depth - 1,
+            turn: node.turn + 1,
+            continue_with_member: 0,
+            action: Some(action),
+            state,
+        }
+    }
+
+    /// Creates a new node from within the same party. Assumes that
+    /// this is not the last action to be taken. If you need to make
+    /// the last move in the same party, use [`Node::next_party`] instead.
+    pub fn next_in_same_party(
+        id: usize,
+        node: &Node,
+        state: Conflict,
+        member_id: usize,
+        action: AppliedAction,
+    ) -> Self {
+        Self {
+            id,
+            parent_id: Some(node.id),
+            child_ids: Vec::default(),
+            is_maximizing: node.is_maximizing,
+            value: node.value,
+            best_child: node.best_child,
+            depth: node.depth + 1,
+            turn: node.turn + 1,
+            continue_with_member: member_id + 1,
+            action: Some(action),
+            state,
+        }
+    }
 }
 
 #[cfg(test)]
