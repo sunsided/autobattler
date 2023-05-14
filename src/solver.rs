@@ -15,7 +15,7 @@ impl Solver {
     /// ## Returns
     /// The [`Outcome`] of the conflict.
     pub fn engage(conflict: &Conflict) -> Outcome {
-        let max_depth = 5; // TODO: arbitrarily chosen number
+        let max_depth = 200; // TODO: arbitrarily chosen number
         Self::minimax(conflict, max_depth)
     }
 
@@ -35,8 +35,10 @@ impl Solver {
             parent_id: None,
             child_ids: Vec::default(),
             depth: max_depth,
+            turn: 0,
             is_maximizing: true,
             value: f32::NEG_INFINITY,
+            best_child: None,
             action: None,
             state: conflict.clone(),
         }];
@@ -53,13 +55,17 @@ impl Solver {
             if let Some(value) = Self::get_utility(&node.state) {
                 // Update the value in the nodes set first before iterating.
                 node.value = value;
+                node.best_child = Some(id);
                 nodes[id].value = value;
+                nodes[id].best_child = Some(id);
                 Self::propagate_values(&mut nodes, &mut node);
                 continue 'dfs;
             }
 
             // Also terminate iteration if the look-ahead depth is reached.
             if node.depth == 0 {
+                node.best_child = Some(id);
+                nodes[id].best_child = Some(id);
                 Self::propagate_values(&mut nodes, &mut node);
                 continue 'dfs;
             }
@@ -102,6 +108,11 @@ impl Solver {
         // Members take actions in turns.
         let source_party_id = current.id;
         for member in &current.members {
+            // Only alive members are allowed to play.
+            if member.is_dead() {
+                continue;
+            }
+
             let member_id = member.id;
 
             // Each member can perform a variety of actions.
@@ -110,6 +121,11 @@ impl Solver {
                 // TODO: An endless cycle may occur if we choose to heal opponents if that effects the utility (e.g. XP collected).
                 let target_party_id = opponent.id;
                 for target in &opponent.members {
+                    // Only alive targets are allowed to play. See above TODO.
+                    if target.is_dead() {
+                        continue;
+                    }
+
                     let target_id = target.id;
 
                     // TODO: Optimize state creation - only clone when action was applied.
@@ -150,7 +166,9 @@ impl Solver {
                             // A maximizing node's starting value is negative infinity.
                             f32::NEG_INFINITY
                         },
+                        best_child: None,
                         depth: node.depth - 1,
+                        turn: node.turn + 1,
                         action: Some(AppliedAction {
                             action: action.clone(),
                             source: Participant {
@@ -193,35 +211,34 @@ impl Solver {
             OutcomeType::Lose(value)
         };
 
-        let mut outcome = Outcome {
-            outcome,
-            timeline: Vec::default(),
-        };
+        let mut stack = Vec::default();
 
-        let mut node = &nodes[0];
-        let mut turn = 0;
-        'dfs: loop {
-            'child: for child in &node.child_ids {
-                let child = &nodes[*child];
-                if !Self::values_equal(&child, &node) {
-                    continue 'child;
+        let mut node = &nodes[nodes[0].best_child.expect("A best child node is required")];
+        'backtracking: loop {
+            stack.push(Event {
+                turn: node.turn,
+                is_initiator_turn: node.is_maximizing,
+                action: node.action.clone().expect(""),
+                state: node.state.clone(),
+            });
+
+            if let Some(parent_id) = node.parent_id {
+                // The root node has no action, so stop here.
+                if parent_id == 0 {
+                    break;
                 }
 
-                outcome.timeline.push(Event {
-                    turn,
-                    is_initiator_turn: node.is_maximizing,
-                    action: child.action.clone().expect(""),
-                    state: child.state.clone(),
-                });
-                node = child;
-                turn += 1;
-                continue 'dfs;
+                node = &nodes[parent_id];
+                continue 'backtracking;
             }
 
-            // No matching child found. End of iteration.
             break;
         }
-        outcome
+
+        Outcome {
+            outcome,
+            timeline: stack.into_iter().rev().collect(),
+        }
     }
 
     /// Test if two [`Node`] entries have the same finite value or the same infinity.
@@ -236,11 +253,14 @@ impl Solver {
         let mut child_id = node.id;
         let mut outcome_changed = true;
 
+        debug_assert_ne!(node.best_child, None, "No best child set");
+
         while let Some(id) = parent_id {
             // Note that the child value is only finite if we reached
             // a terminal state and will be ±infinite if the search
             // terminated due to search depth limitation.
             let child_value = nodes[child_id].value;
+            let best_child = nodes[child_id].best_child;
 
             let node = &mut nodes[id];
             let old_value = node.value;
@@ -261,6 +281,11 @@ impl Solver {
                 );
             } else if child_value.is_finite() && node.value == old_value {
                 outcome_changed = false;
+            }
+
+            if outcome_changed || node.best_child.is_none() {
+                node.best_child = best_child;
+                debug_assert_ne!(node.best_child, None, "No best child detected");
             }
 
             parent_id = node.parent_id;
@@ -349,6 +374,8 @@ struct Node {
     /// The IDs of the node's children. Only meaningful
     /// if a terminal state was found, i.e. [`value`] is finite.
     pub child_ids: Vec<usize>,
+    /// The turn at which this node appeared.
+    pub turn: usize,
     /// The depth of the node. If it reaches zero, search is terminated.
     pub depth: usize,
     /// Whether this is a maximizing or minimizing node in minimax.
@@ -357,6 +384,8 @@ struct Node {
     /// The utility value of this node. Only meaningful if this is
     /// a terminal node (i.e. win or loss for either side).
     pub value: f32,
+    /// The ID of the child that optimized the value.
+    pub best_child: Option<usize>,
     /// The action taken to arrive at this node.
     /// Is [`None`] only for the root node.
     pub action: Option<AppliedAction>,

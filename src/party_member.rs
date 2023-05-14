@@ -67,17 +67,12 @@ impl PartyMember {
     fn add_attack_actions(&self, actions: &mut Vec<Action>) {
         let damage = match self.weapon {
             Weapon::Stick(ref stick) => stick.damage,
+            Weapon::Fists(ref fists) => fists.damage,
         };
 
         actions.push(Action::SimpleAttack(SimpleAttackAction {
             weapon: Some(self.weapon.clone()),
             damage,
-        }));
-
-        // Also add a weak attack for testing purposes.
-        actions.push(Action::SimpleAttack(SimpleAttackAction {
-            weapon: None,
-            damage: 5.0,
         }));
     }
 }

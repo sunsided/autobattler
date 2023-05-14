@@ -3,7 +3,7 @@ use crate::conflict::Conflict;
 use crate::party::{Participant, Party};
 use crate::party_member::PartyMember;
 use crate::solver::{OutcomeType, Solver};
-use crate::weapon::{Stick, Weapon};
+use crate::weapon::{Fists, Stick, Weapon};
 use colored::{ColoredString, Colorize};
 use rnglib::{Language, RNG};
 
@@ -21,7 +21,7 @@ fn main() {
             id: 0,
             health: 25.0,
             damage_taken: 0.0,
-            weapon: Weapon::Stick(Stick { damage: 10.0 }),
+            weapon: Weapon::Stick(Stick { damage: 11.0 }),
         }],
     };
 
@@ -30,12 +30,22 @@ fn main() {
 
     let villains = Party {
         id: 1,
-        members: vec![PartyMember {
-            id: 0,
-            health: 25.0,
-            damage_taken: 0.0,
-            weapon: Weapon::Stick(Stick { damage: 10.0 }),
-        }],
+        members: vec![
+            PartyMember {
+                id: 0,
+                health: 15.0,
+                damage_taken: 0.0,
+                weapon: Weapon::Stick(Stick { damage: 10.0 }),
+            },
+            /*
+            PartyMember {
+                id: 1,
+                health: 15.0,
+                damage_taken: 0.0,
+                weapon: Weapon::Fists(Fists { damage: 1.0 }),
+            },
+            */
+        ],
     };
 
     let rng = RNG::try_from(&Language::Demonic).unwrap();
@@ -74,13 +84,23 @@ fn main() {
     println!("\n{}", "On the attacking side:".bright_white());
     for member in &conflict.initiator.members {
         let name = &names[conflict.initiator.id][member.id];
-        println!("- {}, with {} health", name.blue(), member.health);
+        println!(
+            "- {}, with {} health and {}",
+            name.blue(),
+            member.health,
+            format!("{:?}", member.weapon).yellow()
+        );
     }
 
     println!("\n{}", "On the defending side:".bright_white());
     for member in &conflict.opponent.members {
         let name = &names[conflict.opponent.id][member.id];
-        println!("- {}, with {} health", name.purple(), member.health);
+        println!(
+            "- {}, with {} health and {}",
+            name.purple(),
+            member.health,
+            format!("{:?}", member.weapon).yellow()
+        );
     }
 
     let initiator_party = conflict.initiator.id;
