@@ -13,6 +13,7 @@ mod conflict;
 mod party;
 mod party_member;
 mod solver;
+mod value;
 mod weapon;
 
 fn main() {

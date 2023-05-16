@@ -2,6 +2,7 @@ use crate::action::AppliedAction;
 use crate::action_iterator::ActionIterator;
 use crate::conflict::Conflict;
 use crate::party::Participant;
+use crate::value::Value;
 use log::trace;
 
 pub struct Solver;
@@ -52,9 +53,9 @@ impl Solver {
                 trace!("Node {node} is a terminal, found value {value}", node = id);
 
                 // Update the value in the nodes set first before iterating.
-                node.value = value;
+                node.value = node.value.with_value(value);
                 node.best_child = Some(id);
-                nodes[id].value = value;
+                nodes[id].value = node.value.clone();
                 nodes[id].best_child = Some(id);
                 Self::propagate_values(&mut nodes, &mut node);
                 continue 'dfs;
@@ -168,6 +169,7 @@ impl Solver {
                 let child_node = Node::branch(
                     nodes.len(),
                     node.id,
+                    &node.value,
                     !node.is_maximizing,
                     node.depth - 1,
                     node.turn + 1,
@@ -193,7 +195,7 @@ impl Solver {
         // The outcome is positive only if the value of the start
         // node is positive and under the assumption that the opposing
         // player attempts to play optimally.
-        let value = nodes[0].value;
+        let value = nodes[0].value.value;
         let outcome = if value.is_infinite() {
             OutcomeType::Unknown
         } else if value >= 0.0 {
@@ -246,17 +248,19 @@ impl Solver {
             // Note that the child value is only finite if we reached
             // a terminal state and will be ±infinite if the search
             // terminated due to search depth limitation.
-            let child_value = nodes[child_id].value;
+            let child_value = nodes[child_id].value.clone();
             let best_child = nodes[child_id].best_child;
 
             let node = &mut nodes[id];
-            let old_value = node.value;
+            let old_value = node.value.clone();
 
             if node.is_maximizing {
-                node.value = child_value.max(node.value);
+                node.value = node.value.max(child_value.clone());
             } else {
-                node.value = child_value.min(node.value);
+                node.value = node.value.min(child_value.clone());
             }
+
+            // TODO: Propagate alpha/beta brackets to "right" child nodes of the parent
 
             // TODO: terminate propagation if value did not change.
             if !outcome_changed {
@@ -372,7 +376,7 @@ struct Node {
     pub is_maximizing: bool,
     /// The utility value of this node. Only meaningful if this is
     /// a terminal node (i.e. win or loss for either side).
-    pub value: f32,
+    pub value: Value,
     /// The list of all known direct children of this node.
     pub child_nodes: Vec<usize>,
     /// The ID of the child that optimized the value, if any. Could be [`None`]
@@ -394,7 +398,7 @@ impl Node {
             depth: max_depth,
             turn: 0,
             is_maximizing: true,
-            value: f32::NEG_INFINITY,
+            value: Value::new(f32::NEG_INFINITY),
             best_child: None,
             action: None,
             state: conflict,
@@ -408,6 +412,7 @@ impl Node {
     pub fn branch(
         id: usize,
         parent_id: usize,
+        parent_value: &Value,
         is_maximizing: bool,
         depth: usize,
         turn: usize,
@@ -419,9 +424,9 @@ impl Node {
             parent_id: Some(parent_id),
             is_maximizing,
             value: if is_maximizing {
-                f32::NEG_INFINITY
+                parent_value.with_value(f32::NEG_INFINITY)
             } else {
-                f32::INFINITY
+                parent_value.with_value(f32::INFINITY)
             },
             best_child: None,
             depth,
