@@ -60,9 +60,15 @@ impl PartyMember {
     pub fn actions(self) -> AttackIterator {
         AttackIterator::new(self)
     }
+
+    /// Determines whether the action is applicable to this member.
+    pub fn is_applicable(&self, _action: &Action) -> bool {
+        !self.is_dead()
+    }
 }
 
 /// An iterator for attack actions, i.e. actions targeting a single opponent.
+#[derive(Debug, Clone)]
 pub struct AttackIterator {
     member: PartyMember,
     index: usize,

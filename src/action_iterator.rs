@@ -10,6 +10,7 @@ use std::ops::Range;
 /// with the first action applied to each individual opponent, then the second
 /// action applied to each opponent, etc. If all actions are exhausted for all opponents,
 /// the next party member is selected and the process repeats.
+#[derive(Debug, Clone)]
 pub struct ActionIterator {
     /// The party whose turn it is.
     current: Party,
@@ -28,6 +29,7 @@ pub struct ActionIterator {
 /// The iterator generates all permutations of actions and opponents,
 /// emitting the same action for each opponent first, then producing the next
 /// action for each opponent, etc.
+#[derive(Debug, Clone)]
 struct ActionTargetIterator {
     /// The current enemy being targeted.
     enemy_index: usize,
@@ -83,6 +85,14 @@ impl Iterator for ActionIterator {
                     self.iter = None;
                 }
                 Some((action, target_index)) => {
+                    let opponent = &self.opponent.members[target_index];
+
+                    // TODO: Rework action generation - should only generate applicable actions to begin with.
+                    if !opponent.is_applicable(&action) {
+                        self.current_index += 1;
+                        continue;
+                    }
+
                     let source = Participant {
                         party_id: self.current.id,
                         member_id: self.current.members[self.current_index].id,
@@ -90,7 +100,7 @@ impl Iterator for ActionIterator {
 
                     let target = Participant {
                         party_id: self.opponent.id,
-                        member_id: self.opponent.members[target_index].id,
+                        member_id: opponent.id,
                     };
 
                     return Some(AppliedAction {
