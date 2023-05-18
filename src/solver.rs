@@ -124,7 +124,7 @@ impl Solver {
             let is_last_in_party = last_id == member_id;
 
             // Each member can perform a variety of actions.
-            for action in member.actions() {
+            for action in member.clone().actions() {
                 // Each action can target an opponent or a party member.
                 // TODO: An endless cycle may occur if we choose to heal opponents if that effects the utility (e.g. XP collected).
                 let target_party_id = opponent.id;

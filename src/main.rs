@@ -8,6 +8,7 @@ use colored::{ColoredString, Colorize};
 use rnglib::{Language, RNG};
 
 mod action;
+mod action_iterator;
 mod conflict;
 mod party;
 mod party_member;

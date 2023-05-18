@@ -3,7 +3,7 @@ use crate::weapon::Weapon;
 use std::fmt::{Debug, Formatter};
 
 /// An applied action.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AppliedAction {
     /// The action.
     pub action: Action,
@@ -14,14 +14,14 @@ pub struct AppliedAction {
 }
 
 /// An action to be taken.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum Action {
     /// Performs a simple attack.
     SimpleAttack(SimpleAttackAction),
 }
 
 /// A simple attack.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct SimpleAttackAction {
     /// The weapon used for the attack.
     pub weapon: Option<Weapon>,
