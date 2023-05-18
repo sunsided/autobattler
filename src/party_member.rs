@@ -57,23 +57,49 @@ impl PartyMember {
 
     /// Returns an iterator listing all possible actions the party
     /// member can take.
-    pub fn actions(&self) -> impl IntoIterator<Item = Action> {
-        let mut actions = Vec::default();
-        self.add_attack_actions(&mut actions);
-        actions.into_iter()
+    pub fn actions(self) -> AttackIterator {
+        AttackIterator::new(self)
     }
 
-    /// Registers all possible attack actions.
-    fn add_attack_actions(&self, actions: &mut Vec<Action>) {
-        let damage = match self.weapon {
-            Weapon::Stick(ref stick) => stick.damage,
-            Weapon::Fists(ref fists) => fists.damage,
-        };
+    /// Determines whether the action is applicable to this member.
+    pub fn is_applicable(&self, _action: &Action) -> bool {
+        !self.is_dead()
+    }
+}
 
-        actions.push(Action::SimpleAttack(SimpleAttackAction {
-            weapon: Some(self.weapon.clone()),
-            damage,
-        }));
+/// An iterator for attack actions, i.e. actions targeting a single opponent.
+#[derive(Debug, Clone)]
+pub struct AttackIterator {
+    member: PartyMember,
+    index: usize,
+}
+
+impl AttackIterator {
+    /// Creates a new iterator for the party member.
+    fn new(member: PartyMember) -> Self {
+        Self { member, index: 0 }
+    }
+}
+
+/// Implements the [`AttackIterator`] as a state machine.
+impl Iterator for AttackIterator {
+    type Item = Action;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let state = self.index;
+        match state {
+            0 => {
+                let damage = self.member.weapon.damage();
+                let action = Action::SimpleAttack(SimpleAttackAction {
+                    weapon: Some(self.member.weapon.clone()),
+                    damage,
+                });
+
+                self.index += 1;
+                Some(action)
+            }
+            _ => None,
+        }
     }
 }
 
@@ -104,5 +130,25 @@ mod tests {
         // Health is not negative.
         assert_eq!(member.health, 0.0);
         assert_eq!(member.damage_taken, damage_dealt);
+    }
+
+    #[test]
+    fn attack_iterator() {
+        let member = PartyMember {
+            id: 0,
+            health: 100.0,
+            damage_taken: 0.0,
+            weapon: Weapon::Stick(Stick { damage: 0.0 }),
+        };
+
+        let mut iter = member.clone().actions();
+        assert_eq!(
+            iter.next(),
+            Some(Action::SimpleAttack(SimpleAttackAction {
+                weapon: Some(member.weapon),
+                damage: 0.0
+            }))
+        );
+        assert_eq!(iter.next(), None);
     }
 }

@@ -1,8 +1,8 @@
 use crate::action::AppliedAction;
+use crate::action_iterator::ActionIterator;
 use crate::conflict::Conflict;
 use crate::party::Participant;
 use log::trace;
-use std::collections::VecDeque;
 
 pub struct Solver;
 
@@ -33,16 +33,24 @@ impl Solver {
         // initialized to negative infinity.
         let mut nodes = vec![Node::new_root(conflict.clone(), max_depth)];
 
-        let mut dfs_queue = VecDeque::from([0]);
-        'dfs: while let Some(id) = dfs_queue.pop_front() {
+        let mut dfs_queue = Vec::from([0]);
+        'dfs: while let Some(id) = dfs_queue.pop() {
             // The clone here is a hack to get around borrowing rules.
             let mut node = nodes[id].clone();
+            trace!(
+                "Exploring node {node} at depth {depth}; maximizing: {is_maximizing}",
+                node = id,
+                depth = node.depth,
+                is_maximizing = node.is_maximizing
+            );
 
             // If this is a terminal node we either have a winner or loser.
             // TODO: We may decide to stop searching if the initiating party wins or decide to find the best possible outcome.
             //       Since all of minimax assumes both players play optimally, selecting the optimal win (i.e. the highest
             //       possible value) may give more tolerance for erratic behavior of the opponent.
             if let Some(value) = Self::get_utility(&node.state) {
+                trace!("Node {node} is a terminal, found value {value}", node = id);
+
                 // Update the value in the nodes set first before iterating.
                 node.value = value;
                 node.best_child = Some(id);
@@ -54,17 +62,18 @@ impl Solver {
 
             // Also terminate iteration if the look-ahead depth is reached.
             if node.depth == 0 {
+                trace!(
+                    "Search depth reached, terminating search on node {node}",
+                    node = id
+                );
                 node.best_child = Some(id);
                 nodes[id].best_child = Some(id);
                 Self::propagate_values(&mut nodes, &mut node);
                 continue 'dfs;
             }
 
-            trace!("Exploring node {} at depth {}", node.id, node.depth);
-            let node = match Self::minimax_expand(node, &mut nodes, &mut dfs_queue) {
-                None => continue 'dfs,
-                Some(node) => node,
-            };
+            // Expand the search tree at the current node.
+            let node = Self::minimax_expand(node, &mut nodes, &mut dfs_queue);
 
             // Replace the node in the original array with our clone.
             let node_id = node.id;
@@ -75,11 +84,15 @@ impl Solver {
     }
 
     /// Implements the minimax recursion as an expansion of the search tree.
-    fn minimax_expand(
-        mut node: Node,
-        nodes: &mut Vec<Node>,
-        frontier: &mut VecDeque<usize>,
-    ) -> Option<Node> {
+    ///
+    /// ## Arguments
+    /// * `node` - The search node we are expanding. We take ownership in order to avoid multiple borrows.
+    /// * `nodes` - The list of all known and expanded nodes. Expanded child nodes will be pushed here.
+    /// * `frontier` - The open list of nodes to evaluate. We push the expanded child node's ID to the back.
+    ///
+    /// ## Returns
+    /// The same node that was passed in.
+    fn minimax_expand(mut node: Node, nodes: &mut Vec<Node>, frontier: &mut Vec<usize>) -> Node {
         // Select the currently active party.
         let current = if node.is_maximizing {
             &node.state.initiator
@@ -94,111 +107,85 @@ impl Solver {
             &node.state.initiator
         };
 
-        // Collect all child IDs to later update the node.
-        let mut child_ids = Vec::default();
+        // If we visit this node for the first time, create the iterator.
+        // On all subsequent visits we continue from the last-known state.
+        if node.action_iter.is_none() {
+            node.action_iter = Some(ActionIterator::new(current.clone(), opponent.clone()));
+        }
 
         // Members take actions in turns.
         let source_party_id = current.id;
 
-        let members: Vec<_> = current
-            .members
-            .iter()
-            .filter(|&m| m.id >= node.continue_with_member)
-            .filter(|&m| !m.is_dead())
-            .collect();
+        if let Some(action) = node.action_iter.as_mut().map_or(None, |i| i.next()) {
+            let source_id = action.source.member_id;
+            debug_assert_eq!(action.source.party_id, source_party_id);
 
-        // Not all members can be dead, as that was checked before, but we could have
-        // exhausted our party's moves.
-        let last_id = match members.last() {
-            None => return None,
-            Some(node) => node.id,
-        };
+            let target_party_id = action.target.party_id;
+            debug_assert_eq!(action.target.party_id, opponent.id);
 
-        for member in members {
-            // Only alive members are allowed to play.
-            if member.is_dead() {
-                continue;
-            }
+            let target_id = action.target.member_id;
+            let target = &opponent.members[target_id];
 
-            let member_id = member.id;
-            let is_last_in_party = last_id == member_id;
+            let action = &action.action;
 
-            // Each member can perform a variety of actions.
-            for action in member.actions() {
-                // Each action can target an opponent or a party member.
-                // TODO: An endless cycle may occur if we choose to heal opponents if that effects the utility (e.g. XP collected).
-                let target_party_id = opponent.id;
-                for target in &opponent.members {
-                    // Only alive targets are allowed to play. See above TODO.
-                    if target.is_dead() {
-                        continue;
+            // TODO: Optimize state creation - only clone when action was applied.
+            let mut target = target.clone();
+            if target.handle_action(action) {
+                // Branch off and replace the member with the updated state.
+                let mut opponent = opponent.clone();
+                opponent.replace_member(target);
+
+                // Create a new branch on the board.
+                let state = if node.is_maximizing {
+                    Conflict {
+                        initiator: current.clone(),
+                        opponent,
+                        turn: node.state.turn + 1,
                     }
-
-                    let target_id = target.id;
-
-                    // TODO: Optimize state creation - only clone when action was applied.
-                    let mut target = target.clone();
-                    if !target.handle_action(&action) {
-                        continue;
+                } else {
+                    Conflict {
+                        initiator: opponent,
+                        opponent: current.clone(),
+                        turn: node.state.turn + 1,
                     }
+                };
 
-                    // Branch off and replace the member with the updated state.
-                    let mut opponent = opponent.clone();
-                    opponent.replace_member(target);
+                // The action to apply.
+                let action = AppliedAction {
+                    action: action.clone(),
+                    source: Participant {
+                        party_id: source_party_id,
+                        member_id: source_id,
+                    },
+                    target: Participant {
+                        party_id: target_party_id,
+                        member_id: target_id,
+                    },
+                };
 
-                    // Create a new branch on the board.
-                    let state = if node.is_maximizing {
-                        Conflict {
-                            initiator: current.clone(),
-                            opponent,
-                            turn: node.state.turn + 1,
-                        }
-                    } else {
-                        Conflict {
-                            initiator: opponent,
-                            opponent: current.clone(),
-                            turn: node.state.turn + 1,
-                        }
-                    };
+                // If this is not the last member in the party we need to chain more
+                // moves. This will create multiple maximize/minimize layers in the tree.
+                let child_node = Node::branch(
+                    nodes.len(),
+                    node.id,
+                    !node.is_maximizing,
+                    node.depth - 1,
+                    node.turn + 1,
+                    state,
+                    action,
+                );
 
-                    // The action to apply.
-                    let action = AppliedAction {
-                        action: action.clone(),
-                        source: Participant {
-                            party_id: source_party_id,
-                            member_id,
-                        },
-                        target: Participant {
-                            party_id: target_party_id,
-                            member_id: target_id,
-                        },
-                    };
+                // Since the actions were not exhausted yet, we push the parent node again.
+                frontier.push(node.id);
+                node.child_nodes.push(child_node.id);
 
-                    // If this is not the last member in the party we need to chain more
-                    // moves. This will create multiple maximize/minimize layers in the tree.
-                    let node = if is_last_in_party {
-                        Node::next_party(nodes.len(), &node, state, action)
-                    } else {
-                        Node::next_in_same_party(nodes.len(), &node, state, member_id, action)
-                    };
-
-                    child_ids.push(node.id);
-                    frontier.push_back(node.id);
-                    nodes.push(node);
-                }
-
-                // TODO: We can also target ourselves.
-            }
-
-            // Ensure we expand only one party member at a time.
-            if !is_last_in_party {
-                break;
+                // Now push the child node so that we can explore it.
+                frontier.push(child_node.id);
+                nodes.push(child_node);
             }
         }
 
-        // Append the newly generated child IDs to the current node.
-        node.child_ids.append(&mut child_ids);
-        Some(node)
+        node
     }
 
     /// Backtracks the events from the start to one of the the most likely outcomes.
@@ -341,6 +328,7 @@ pub struct Outcome {
 }
 
 /// The type of outcome.
+#[derive(Debug, Clone, PartialEq)]
 pub enum OutcomeType {
     /// The initiating party wins.
     Win(f32),
@@ -373,22 +361,22 @@ struct Node {
     /// The ID of the node's immediate parent.
     /// Is [`None`] only for the root node.
     pub parent_id: Option<usize>,
-    /// The IDs of the node's children. Only meaningful
-    /// if a terminal state was found, i.e. [`value`] is finite.
-    pub child_ids: Vec<usize>,
     /// The turn at which this node appeared.
     pub turn: usize,
     /// The depth of the node. If it reaches zero, search is terminated.
     pub depth: usize,
-    /// The member with whose ID we wish to continue to explore the tree.
-    pub continue_with_member: usize,
+    /// The action iterator; if it yields none, the node is explored completely.
+    pub action_iter: Option<ActionIterator>,
     /// Whether this is a maximizing or minimizing node in minimax.
     /// If maximizing, the represents a move of the initiating party of the conflict.
     pub is_maximizing: bool,
     /// The utility value of this node. Only meaningful if this is
     /// a terminal node (i.e. win or loss for either side).
     pub value: f32,
-    /// The ID of the child that optimized the value.
+    /// The list of all known direct children of this node.
+    pub child_nodes: Vec<usize>,
+    /// The ID of the child that optimized the value, if any. Could be [`None`]
+    /// if this node itself is a terminal node.
     pub best_child: Option<usize>,
     /// The action taken to arrive at this node.
     /// Is [`None`] only for the root node.
@@ -403,64 +391,45 @@ impl Node {
         Self {
             id: 0,
             parent_id: None,
-            child_ids: Vec::default(),
             depth: max_depth,
             turn: 0,
-            continue_with_member: 0,
             is_maximizing: true,
             value: f32::NEG_INFINITY,
             best_child: None,
             action: None,
             state: conflict,
+            action_iter: None,
+            child_nodes: Vec::default(),
         }
     }
 
     /// Ends this party's turn and by changing from maximizing to minimizing
     /// and vice versa.
-    pub fn next_party(id: usize, node: &Node, state: Conflict, action: AppliedAction) -> Self {
-        Self {
-            id,
-            parent_id: Some(node.id),
-            child_ids: Vec::default(),
-            is_maximizing: !node.is_maximizing,
-            value: if node.is_maximizing {
-                // A minimizing node's starting value is positive infinity.
-                f32::INFINITY
-            } else {
-                // A maximizing node's starting value is negative infinity.
-                f32::NEG_INFINITY
-            },
-            best_child: None,
-            depth: node.depth - 1,
-            turn: node.turn + 1,
-            continue_with_member: 0,
-            action: Some(action),
-            state,
-        }
-    }
-
-    /// Creates a new node from within the same party. Assumes that
-    /// this is not the last action to be taken. If you need to make
-    /// the last move in the same party, use [`Node::next_party`] instead.
-    pub fn next_in_same_party(
+    pub fn branch(
         id: usize,
-        node: &Node,
+        parent_id: usize,
+        is_maximizing: bool,
+        depth: usize,
+        turn: usize,
         state: Conflict,
-        member_id: usize,
         action: AppliedAction,
     ) -> Self {
         Self {
             id,
-            parent_id: Some(node.id),
-            child_ids: Vec::default(),
-            is_maximizing: node.is_maximizing,
-            value: node.value,
-            best_child: node.best_child,
-            depth: node.depth + 1,
-            turn: node.turn + 1,
-            continue_with_member: member_id + 1,
+            parent_id: Some(parent_id),
+            is_maximizing,
+            value: if is_maximizing {
+                f32::NEG_INFINITY
+            } else {
+                f32::INFINITY
+            },
+            best_child: None,
+            depth,
+            turn,
             action: Some(action),
+            action_iter: None,
             state,
+            child_nodes: Vec::default(),
         }
     }
 }
@@ -470,11 +439,11 @@ mod tests {
     use super::*;
     use crate::party::Party;
     use crate::party_member::PartyMember;
-    use crate::weapon::{Stick, Weapon};
+    use crate::weapon::{Fists, Stick, Weapon};
 
     #[test]
-    fn it_works() {
-        let villains = Party {
+    fn simple_fight_works() {
+        let heroes = Party {
             id: 0,
             members: vec![PartyMember {
                 id: 0,
@@ -484,7 +453,7 @@ mod tests {
             }],
         };
 
-        let heroes = Party {
+        let villains = Party {
             id: 1,
             members: vec![PartyMember {
                 id: 0,
@@ -500,7 +469,48 @@ mod tests {
             opponent: villains,
         };
 
-        Solver::engage(&conflict);
+        let solution = Solver::engage(&conflict);
+        assert_eq!(solution.outcome, OutcomeType::Win(5.0));
+    }
+
+    #[test]
+    fn complex_fight_works() {
+        let heroes = Party {
+            id: 0,
+            members: vec![PartyMember {
+                id: 0,
+                health: 20.0,
+                damage_taken: 0.0,
+                weapon: Weapon::Fists(Fists { damage: 10.0 }),
+            }],
+        };
+
+        let villains = Party {
+            id: 1,
+            members: vec![
+                PartyMember {
+                    id: 0,
+                    health: 15.0,
+                    damage_taken: 0.0,
+                    weapon: Weapon::Stick(Stick { damage: 5.0 }),
+                },
+                PartyMember {
+                    id: 1,
+                    health: 10.0,
+                    damage_taken: 0.0,
+                    weapon: Weapon::Fists(Fists { damage: 20.0 }),
+                },
+            ],
+        };
+
+        let conflict = Conflict {
+            turn: 0,
+            initiator: heroes,
+            opponent: villains,
+        };
+
+        let solution = Solver::engage(&conflict);
+        assert_eq!(solution.outcome, OutcomeType::Win(10.0));
     }
 
     #[test]

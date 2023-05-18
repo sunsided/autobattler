@@ -1,7 +1,7 @@
 use std::fmt::{Debug, Formatter};
 
 /// A weapon to be used by someone.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum Weapon {
     /// Fists it is.
     Fists(Fists),
@@ -9,15 +9,25 @@ pub enum Weapon {
     Stick(Stick),
 }
 
+impl Weapon {
+    /// Gets the damage of the weapon.
+    pub fn damage(&self) -> f32 {
+        match self {
+            Weapon::Stick(ref w) => w.damage,
+            Weapon::Fists(ref w) => w.damage,
+        }
+    }
+}
+
 /// Fists. Not very effective.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Fists {
     /// The amount of damage dealt on a successful hit.
     pub damage: f32,
 }
 
 /// A simple stick. Not very effective.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Stick {
     /// The amount of damage dealt on a successful hit.
     pub damage: f32,
