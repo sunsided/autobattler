@@ -41,7 +41,7 @@ impl Solver {
             // The clone here is a hack to get around borrowing rules.
             let mut node = nodes[id].clone();
             trace!(
-                "Exploring node {node} at depth {depth}; {direction} within brackets α={alpha}, β={beta}, best={value} at={best_child:?}",
+                "Exploring node {node} at depth {depth}; {direction} within α={alpha} β={beta}, best={value} at={best_child:?}",
                 depth = node.depth,
                 direction = if node.is_maximizing { "maximizing"} else {"minimizing"},
                 alpha = node.value.alpha,

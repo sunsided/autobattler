@@ -14,8 +14,8 @@ This is definitely not rocket science being done here. Expect more minimax than 
 
 - [x] Regular minimax.
 - [x] Minimax with multiple turns per party.
+- [x] Implement Alpha-Beta pruning.
 - [ ] Implement Iterative Deepening.
-- [ ] Implement Alpha-Beta pruning.
 
 ## Example outcome
 
