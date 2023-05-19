@@ -61,6 +61,11 @@ impl PartyMember {
         AttackIterator::new(self)
     }
 
+    /// Determines whether the current member can act..
+    pub fn can_act(&self) -> bool {
+        !self.is_dead()
+    }
+
     /// Determines whether the action is applicable to this member.
     pub fn is_applicable(&self, _action: &Action) -> bool {
         !self.is_dead()
