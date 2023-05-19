@@ -81,7 +81,7 @@ impl Solver {
             }
 
             // Expand the search tree at the current node.
-            let node = match Self::minimax_expand(node, &mut nodes) {
+            let node = match Self::minimax_expand(node, nodes.len()) {
                 ExpansionResult::Expanded(Expansion { mut parent, child }) => {
                     // Register the child node as a new child.
                     parent.child_nodes.push(child.id);
@@ -129,11 +129,14 @@ impl Solver {
     ///
     /// ## Arguments
     /// * `node` - The search node we are expanding. We take ownership in order to avoid multiple borrows.
-    /// * `nodes` - The list of all known and expanded nodes. Expanded child nodes will be pushed here.
+    /// * `next_child_id` - The next available child ID, typically the current length of the list
+    ///   of all known and expanded nodes.
     ///
     /// ## Returns
     /// The same node that was passed in.
-    fn minimax_expand(mut node: Node, nodes: &mut Vec<Node>) -> ExpansionResult {
+    fn minimax_expand(mut node: Node, next_child_id: usize) -> ExpansionResult {
+        debug_assert!(next_child_id > node.id);
+
         // Select the currently active party.
         let current = if node.is_maximizing {
             &node.state.initiator
@@ -206,7 +209,7 @@ impl Solver {
 
                 // If this is not the last member in the party we need to chain more
                 // moves. This will create multiple maximize/minimize layers in the tree.
-                let child_node = Node::new_branch_from(nodes.len(), &node, action, state);
+                let child_node = Node::new_branch_from(next_child_id, &node, action, state);
 
                 if let Some(action) = &node.action {
                     log_expand_node_with_action(&node, &child_node, &action);
