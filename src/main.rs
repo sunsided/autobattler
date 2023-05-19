@@ -61,7 +61,7 @@ fn main() {
         opponent: villains,
     };
 
-    let outcome = Solver::engage(&conflict);
+    let outcome = Solver::engage(&conflict, 200);
 
     match outcome.outcome {
         OutcomeType::Win(score) => println!(
@@ -76,10 +76,11 @@ fn main() {
             "The initiating party is defeated".red(),
             score
         ),
-        OutcomeType::Unknown => println!(
-            "{} {}.",
+        OutcomeType::Unknown(score) => println!(
+            "{} {}, the best hypothesis is a score of {}.",
             "TL;DR:".bright_white(),
-            "Anything could happen".white()
+            "Anything could happen".white(),
+            score
         ),
     }
 

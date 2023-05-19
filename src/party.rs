@@ -1,4 +1,5 @@
 use crate::party_member::PartyMember;
+use std::fmt::{Display, Formatter};
 
 /// A party, or faction in a conflict.
 #[derive(Debug, Clone)]
@@ -42,5 +43,11 @@ impl Party {
     /// Returns the size of the party.
     pub fn len(&self) -> usize {
         self.members.len()
+    }
+}
+
+impl Display for Participant {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.party_id, self.member_id)
     }
 }
