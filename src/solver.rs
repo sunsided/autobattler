@@ -139,18 +139,11 @@ impl Solver {
     fn minimax_expand(mut node: Node, next_child_id: usize) -> ExpansionResult {
         debug_assert!(next_child_id > node.id);
 
-        // Select the currently active party.
-        let current = if node.is_maximizing {
-            &node.state.initiator
+        // Select the currently active party and the opponent.
+        let (current, opponent) = if node.is_maximizing {
+            (&node.state.initiator, &node.state.opponent)
         } else {
-            &node.state.opponent
-        };
-
-        // Select the current opponent.
-        let opponent = if node.is_maximizing {
-            &node.state.opponent
-        } else {
-            &node.state.initiator
+            (&node.state.opponent, &node.state.initiator)
         };
 
         // If we visit this node for the first time, create the iterator.
@@ -170,7 +163,7 @@ impl Solver {
             debug_assert_eq!(action.target.party_id, opponent.id);
 
             let target_id = action.target.member_id;
-            let target = &opponent.members[target_id];
+            let target = &opponent.members[action.target.member_id];
 
             let action = &action.action;
 
@@ -186,13 +179,11 @@ impl Solver {
                     Conflict {
                         initiator: current.clone(),
                         opponent,
-                        turn: node.state.turn + 1,
                     }
                 } else {
                     Conflict {
                         initiator: opponent,
                         opponent: current.clone(),
-                        turn: node.state.turn + 1,
                     }
                 };
 

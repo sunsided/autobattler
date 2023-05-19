@@ -56,7 +56,6 @@ fn main() {
     let names = vec![hero_names, villain_names];
 
     let conflict = Conflict {
-        turn: 0,
         initiator: heroes,
         opponent: villains,
     };
