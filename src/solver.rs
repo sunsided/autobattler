@@ -199,16 +199,7 @@ impl Solver {
 
                 // If this is not the last member in the party we need to chain more
                 // moves. This will create multiple maximize/minimize layers in the tree.
-                let child_node = Node::new_branch(
-                    nodes.len(),
-                    node.id,
-                    &node.value,
-                    !node.is_maximizing,
-                    node.depth + 1,
-                    node.turn + 1,
-                    action,
-                    state,
-                );
+                let child_node = Node::new_branch_from(nodes.len(), &node, action, state);
 
                 if let Some(action) = &node.action {
                     log_expand_node_with_action(&node, &child_node, &action);
@@ -464,37 +455,32 @@ impl Node {
     ///
     /// ## Arguments
     /// * `id` - The new ID for the node to be created.
-    /// * `parent_id` - The ID of the parent node to the newly created node.
-    /// * `parent_value` - The value of the parent node, used to propagate `alpha`
-    ///   and `beta` limits.
-    /// * `is_maximizing` - Whether the child node is a maximizer or minimizer.
-    /// * `depth` - The search depth, i.e. distance from the root node,
-    ///   typically one less than the parent node.
-    /// * `turn` - The new turn number for that node, typically one higher than the parent node.
+    /// * `parent` - The parent node.
     /// * `action` - The action that lead to the expansion into the child node.
     /// * `state` - The new state observed by the child node after applying the action.
-    pub fn new_branch(
+    pub fn new_branch_from(
         id: usize,
-        parent_id: usize,
-        parent_value: &Value,
-        is_maximizing: bool,
-        depth: usize,
-        turn: usize,
+        parent: &Node,
         action: AppliedAction,
         state: Conflict,
     ) -> Self {
+        let is_maximizing = !parent.is_maximizing;
         Self {
             id,
-            parent_id: Some(parent_id),
+            parent_id: Some(parent.id),
             is_maximizing,
             value: if is_maximizing {
-                parent_value.with_value(TerminalState::Heuristic(f32::NEG_INFINITY))
+                parent
+                    .value
+                    .with_value(TerminalState::Heuristic(f32::NEG_INFINITY))
             } else {
-                parent_value.with_value(TerminalState::Heuristic(f32::INFINITY))
+                parent
+                    .value
+                    .with_value(TerminalState::Heuristic(f32::INFINITY))
             },
             best_child: None,
-            depth,
-            turn,
+            depth: parent.depth + 1,
+            turn: parent.turn + 1,
             action: Some(action),
             action_iter: None,
             state,
