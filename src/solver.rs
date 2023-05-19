@@ -81,9 +81,21 @@ impl Solver {
             }
 
             // Expand the search tree at the current node.
-            let node = match Self::minimax_expand(node, &mut nodes, &mut dfs_queue) {
-                ExpansionResult::Expanded(node) => node,
-                ExpansionResult::Exhausted(mut node) => {
+            let node = match Self::minimax_expand(node, &mut nodes) {
+                ExpansionResult::Expanded(Expansion { mut parent, child }) => {
+                    // Register the child node as a new child.
+                    parent.child_nodes.push(child.id);
+
+                    // Since the actions were not exhausted yet, we push the parent node again.
+                    dfs_queue.push(parent.id);
+
+                    // Now push the child node so that we can explore it.
+                    dfs_queue.push(child.id);
+                    nodes.push(child);
+
+                    parent
+                }
+                ExpansionResult::Exhausted(Exhaustion { mut node }) => {
                     let value = if (*node.value).is_finite() {
                         log_node_fully_explored(&node, &nodes);
                         *node.value
@@ -118,15 +130,10 @@ impl Solver {
     /// ## Arguments
     /// * `node` - The search node we are expanding. We take ownership in order to avoid multiple borrows.
     /// * `nodes` - The list of all known and expanded nodes. Expanded child nodes will be pushed here.
-    /// * `frontier` - The open list of nodes to evaluate. We push the expanded child node's ID to the back.
     ///
     /// ## Returns
     /// The same node that was passed in.
-    fn minimax_expand(
-        mut node: Node,
-        nodes: &mut Vec<Node>,
-        frontier: &mut Vec<usize>,
-    ) -> ExpansionResult {
+    fn minimax_expand(mut node: Node, nodes: &mut Vec<Node>) -> ExpansionResult {
         // Select the currently active party.
         let current = if node.is_maximizing {
             &node.state.initiator
@@ -205,20 +212,11 @@ impl Solver {
                     log_expand_node_with_action(&node, &child_node, &action);
                 }
 
-                // Since the actions were not exhausted yet, we push the parent node again.
-                frontier.push(node.id);
-                node.child_nodes.push(child_node.id);
-
-                // Now push the child node so that we can explore it.
-                frontier.push(child_node.id);
-                nodes.push(child_node);
-
-                // TODO: Return the child node, let the caller mutate the search frontier.
-                return ExpansionResult::Expanded(node);
+                return ExpansionResult::new_expansion(node, child_node);
             }
         }
 
-        ExpansionResult::Exhausted(node)
+        ExpansionResult::new_exhaustion(node)
     }
 
     /// Backtracks the events from the start to one of the the most likely outcomes.
@@ -394,9 +392,43 @@ pub struct Event {
 /// A tree expansion outcome.
 enum ExpansionResult {
     /// A new node was added.
-    Expanded(Node),
+    Expanded(Expansion),
     /// No new node was added.
-    Exhausted(Node),
+    Exhausted(Exhaustion),
+}
+
+struct Expansion {
+    /// The original (now parent) node.
+    parent: Node,
+    /// The expanded child node.
+    child: Node,
+}
+
+struct Exhaustion {
+    /// The original node.
+    node: Node,
+}
+
+impl ExpansionResult {
+    /// Registers the `child` node as a new expansion to be explored.
+    ///
+    /// ## Arguments
+    /// * `node` - The original (parent) node.
+    /// * `child` - The new child node to explore.
+    pub const fn new_expansion(node: Node, child: Node) -> Self {
+        Self::Expanded(Expansion {
+            parent: node,
+            child,
+        })
+    }
+
+    /// Registers the `node` as fully explored.
+    ///
+    /// ## Arguments
+    /// * `node` - The original node.
+    pub const fn new_exhaustion(node: Node) -> Self {
+        Self::Exhausted(Exhaustion { node })
+    }
 }
 
 /// A node in the game tree.
