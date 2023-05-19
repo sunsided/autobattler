@@ -2,7 +2,10 @@ use crate::action::AppliedAction;
 use crate::action_iterator::ActionIterator;
 use crate::conflict::Conflict;
 use crate::party::Participant;
+use crate::value::{Cutoff, TerminalState, Value};
 use log::trace;
+use std::fmt::{Display, Formatter};
+use std::time::{Duration, Instant};
 
 pub struct Solver;
 
@@ -12,11 +15,12 @@ impl Solver {
     ///
     /// ## Arguments
     /// * `conflict` - The conflict situation to resolve.
+    /// * `max_depth` - The maximum search depth.
     ///
     /// ## Returns
     /// The [`Outcome`] of the conflict.
-    pub fn engage(conflict: &Conflict) -> Outcome {
-        let max_depth = 200; // TODO: arbitrarily chosen number
+    pub fn engage(conflict: &Conflict, max_depth: usize) -> Outcome {
+        let max_depth = max_depth.max(1);
         Self::minimax(conflict, max_depth)
     }
 
@@ -31,56 +35,124 @@ impl Solver {
     fn minimax(conflict: &Conflict, max_depth: usize) -> Outcome {
         // We start with a maximizing step, so the value is
         // initialized to negative infinity.
-        let mut nodes = vec![Node::new_root(conflict.clone(), max_depth)];
+        let mut nodes = vec![Node::new_root(conflict.clone(), 0)];
+
+        // Some statistics.
+        let mut evaluations = 0;
+        let mut pruning_cuts = 0;
+        let start_time = Instant::now();
 
         let mut dfs_queue = Vec::from([0]);
         'dfs: while let Some(id) = dfs_queue.pop() {
+            evaluations += 1;
+
             // The clone here is a hack to get around borrowing rules.
             let mut node = nodes[id].clone();
             trace!(
-                "Exploring node {node} at depth {depth}; maximizing: {is_maximizing}",
-                node = id,
+                "Exploring node {node} at depth {depth}; {direction} within α={alpha} β={beta}, best={value} at={best_child:?}",
                 depth = node.depth,
-                is_maximizing = node.is_maximizing
+                direction = if node.is_maximizing { "maximizing"} else {"minimizing"},
+                alpha = node.value.alpha,
+                beta = node.value.beta,
+                value = node.value.value,
+                best_child = node.best_child
             );
 
-            // If this is a terminal node we either have a winner or loser.
-            // TODO: We may decide to stop searching if the initiating party wins or decide to find the best possible outcome.
-            //       Since all of minimax assumes both players play optimally, selecting the optimal win (i.e. the highest
-            //       possible value) may give more tolerance for erratic behavior of the opponent.
-            if let Some(value) = Self::get_utility(&node.state) {
-                trace!("Node {node} is a terminal, found value {value}", node = id);
-
-                // Update the value in the nodes set first before iterating.
-                node.value = value;
-                node.best_child = Some(id);
-                nodes[id].value = value;
-                nodes[id].best_child = Some(id);
-                Self::propagate_values(&mut nodes, &mut node);
+            // Terminate iteration if the look-ahead depth is reached.
+            if node.depth == max_depth {
+                *node.value = Self::get_utility(&node.state);
+                nodes[node.id].value = node.value.clone();
+                trace!(
+                    "Search depth reached, terminating search on node {node} with {value}",
+                    value = *node.value
+                );
+                Self::propagate_to_parent(&mut nodes, &mut node);
                 continue 'dfs;
             }
 
-            // Also terminate iteration if the look-ahead depth is reached.
-            if node.depth == 0 {
+            // Test for alpha or beta cutoffs.
+            if node.is_maximizing && node.value.is_beta_cutoff() {
                 trace!(
-                    "Search depth reached, terminating search on node {node}",
-                    node = id
+                    "Beta cutoff at value={value} >= β={beta} - stopping expansion",
+                    value = node.value.value,
+                    beta = node.value.beta
                 );
-                node.best_child = Some(id);
-                nodes[id].best_child = Some(id);
-                Self::propagate_values(&mut nodes, &mut node);
+
+                pruning_cuts += 1;
+                Self::propagate_to_parent(&mut nodes, &mut node);
+                continue 'dfs;
+            } else if !node.is_maximizing && node.value.is_alpha_cutoff() {
+                trace!(
+                    "Alpha cutoff at value={value} <= α={alpha} - stopping expansion",
+                    value = node.value.value,
+                    alpha = node.value.alpha
+                );
+
+                pruning_cuts += 1;
+                Self::propagate_to_parent(&mut nodes, &mut node);
+                continue 'dfs;
+            } else if !node.is_maximizing && node.value.is_negative() {
+                trace!(
+                    "Minimizer found defeat with value={value} - stopping expansion",
+                    value = node.value.value
+                );
+
+                pruning_cuts += 1;
+                Self::propagate_to_parent(&mut nodes, &mut node);
                 continue 'dfs;
             }
 
             // Expand the search tree at the current node.
-            let node = Self::minimax_expand(node, &mut nodes, &mut dfs_queue);
+            let node = match Self::minimax_expand(node, &mut nodes, &mut dfs_queue) {
+                ExpansionResult::Expanded(node) => node,
+                ExpansionResult::Exhausted(mut node) => {
+                    let value = if (*node.value).is_finite() {
+                        trace!(
+                            "Node {node} (child of {parent_node}) fully explored, got value {value}",
+                            value = *node.value,
+                            parent_node = nodes[node.parent_id.unwrap_or(0)]
+                        );
+                        *node.value
+                    } else {
+                        // If this is a terminal node we either have a winner or loser.
+                        let value = Self::get_utility(&node.state);
+                        match value {
+                            TerminalState::Win(value) =>
+                                trace!(
+                                    "Node {node} (child of {parent_node}) is a terminal, got value {value} (win)",
+                                    parent_node = nodes[node.parent_id.unwrap_or(0)]
+                                ),
+                            TerminalState::Defeat(value) =>
+                                trace!(
+                                    "Node {node} (child of {parent_node}) is a terminal, got value {value} (defeat)",
+                                    parent_node = nodes[node.parent_id.unwrap_or(0)]
+                                ),
+                            TerminalState::Heuristic(value) =>
+                                trace!(
+                                    "Node {node} (child of {parent_node}) exhausted, got value {value} (heuristic)",
+                                    parent_node = nodes[node.parent_id.unwrap_or(0)]
+                                )
+                        }
+                        value
+                    };
+
+                    // Update the value in the nodes set first before iterating.
+                    node.value.value = value;
+                    nodes[id].value = node.value.clone();
+
+                    // Update the value in the nodes set first before iterating.
+                    Self::propagate_to_parent(&mut nodes, &mut node);
+                    node
+                }
+            };
 
             // Replace the node in the original array with our clone.
             let node_id = node.id;
             nodes[node_id] = node;
         }
 
-        Self::backtrack(nodes, max_depth)
+        let search_duration = Instant::now() - start_time;
+        Self::backtrack(nodes, evaluations, pruning_cuts, search_duration)
     }
 
     /// Implements the minimax recursion as an expansion of the search tree.
@@ -92,7 +164,11 @@ impl Solver {
     ///
     /// ## Returns
     /// The same node that was passed in.
-    fn minimax_expand(mut node: Node, nodes: &mut Vec<Node>, frontier: &mut Vec<usize>) -> Node {
+    fn minimax_expand(
+        mut node: Node,
+        nodes: &mut Vec<Node>,
+        frontier: &mut Vec<usize>,
+    ) -> ExpansionResult {
         // Select the currently active party.
         let current = if node.is_maximizing {
             &node.state.initiator
@@ -168,12 +244,17 @@ impl Solver {
                 let child_node = Node::branch(
                     nodes.len(),
                     node.id,
+                    &node.value,
                     !node.is_maximizing,
-                    node.depth - 1,
+                    node.depth + 1,
                     node.turn + 1,
                     state,
                     action,
                 );
+
+                if let Some(action) = &node.action {
+                    trace!("Expand node {node} into {child_node} with action: {action}");
+                }
 
                 // Since the actions were not exhausted yet, we push the parent node again.
                 frontier.push(node.id);
@@ -182,24 +263,30 @@ impl Solver {
                 // Now push the child node so that we can explore it.
                 frontier.push(child_node.id);
                 nodes.push(child_node);
+
+                // TODO: Return the child node, let the caller mutate the search frontier.
+                return ExpansionResult::Expanded(node);
             }
         }
 
-        node
+        ExpansionResult::Exhausted(node)
     }
 
     /// Backtracks the events from the start to one of the the most likely outcomes.
-    fn backtrack(nodes: Vec<Node>, max_depth: usize) -> Outcome {
+    fn backtrack(
+        nodes: Vec<Node>,
+        evaluations: usize,
+        pruning_cuts: usize,
+        search_duration: Duration,
+    ) -> Outcome {
         // The outcome is positive only if the value of the start
         // node is positive and under the assumption that the opposing
         // player attempts to play optimally.
-        let value = nodes[0].value;
-        let outcome = if value.is_infinite() {
-            OutcomeType::Unknown
-        } else if value >= 0.0 {
-            OutcomeType::Win(value)
-        } else {
-            OutcomeType::Lose(value)
+        let value = nodes[0].value.value;
+        let outcome = match value {
+            TerminalState::Win(score) => OutcomeType::Win(score),
+            TerminalState::Defeat(score) => OutcomeType::Lose(score),
+            TerminalState::Heuristic(score) => OutcomeType::Unknown(score),
         };
 
         let mut stack = Vec::default();
@@ -211,16 +298,11 @@ impl Solver {
                 is_initiator_turn: node.is_maximizing,
                 action: node.action.clone().expect(""),
                 state: node.state.clone(),
-                depth: max_depth - node.depth,
+                depth: node.depth,
             });
 
-            if let Some(parent_id) = node.parent_id {
-                // The root node has no action, so stop here.
-                if parent_id == 0 {
-                    break;
-                }
-
-                node = &nodes[parent_id];
+            if let Some(best_child) = node.best_child {
+                node = &nodes[best_child];
                 continue 'backtracking;
             }
 
@@ -229,60 +311,59 @@ impl Solver {
 
         Outcome {
             outcome,
-            timeline: stack.into_iter().rev().collect(),
+            timeline: stack,
+            evaluations,
+            cuts: pruning_cuts,
+            search_duration,
         }
     }
 
     /// Propagates known terminal utility values upwards in the
     /// search tree.
-    fn propagate_values(nodes: &mut Vec<Node>, node: &Node) {
-        let mut parent_id = node.parent_id;
-        let mut child_id = node.id;
-        let mut outcome_changed = true;
+    fn propagate_to_parent(nodes: &mut Vec<Node>, child_node: &Node) -> Cutoff {
+        let parent_id = child_node.parent_id;
 
-        debug_assert_ne!(node.best_child, None, "No best child set");
-
-        while let Some(id) = parent_id {
+        if let Some(id) = parent_id {
             // Note that the child value is only finite if we reached
             // a terminal state and will be ±infinite if the search
             // terminated due to search depth limitation.
-            let child_value = nodes[child_id].value;
-            let best_child = nodes[child_id].best_child;
+            let child_value = child_node.value.clone();
 
-            let node = &mut nodes[id];
-            let old_value = node.value;
+            let parent_node = &mut nodes[id];
+            if parent_node.is_maximizing {
+                if child_value.value > *parent_node.value {
+                    *parent_node.value = child_value.value;
+                    parent_node.best_child = Some(child_node.id);
+                }
 
-            if node.is_maximizing {
-                node.value = child_value.max(node.value);
+                if parent_node.value.is_beta_cutoff() {
+                    // beta-cutoff
+                    return Cutoff::Beta;
+                } else {
+                    parent_node.value.alpha =
+                        parent_node.value.alpha.max(child_value.value.value());
+                }
             } else {
-                node.value = child_value.min(node.value);
-            }
+                if child_value.value < *parent_node.value {
+                    *parent_node.value = child_value.value;
+                    parent_node.best_child = Some(child_node.id);
+                }
 
-            // TODO: terminate propagation if value did not change.
-            if !outcome_changed {
-                // Here only for sanity checking. We'd like to terminate
-                // the upwards propagation instead.
-                debug_assert_eq!(
-                    node.value, old_value,
-                    "If the value started being unchanged, no new changes are introduced upstream."
-                );
-            } else if child_value.is_finite() && node.value == old_value {
-                outcome_changed = false;
+                if parent_node.value.is_alpha_cutoff() {
+                    // alpha-cutoff
+                    return Cutoff::Alpha;
+                } else {
+                    parent_node.value.beta = parent_node.value.beta.min(child_value.value.value());
+                }
             }
-
-            if outcome_changed || node.best_child.is_none() {
-                node.best_child = best_child;
-                debug_assert_ne!(node.best_child, None, "No best child detected");
-            }
-
-            parent_id = node.parent_id;
-            child_id = id;
         }
+
+        Cutoff::None
     }
 
     /// Gets the utility of the current node. Will return `None` if this
     /// is not a terminal state, i.e. no party has won or lost.
-    fn get_utility(state: &Conflict) -> Option<f32> {
+    fn get_utility(state: &Conflict) -> TerminalState {
         if state.initiator.is_defeated() {
             // The current party being dead is a terminal state and always is a negative reward.
             // We sum up the total damage taken to punish strong defeats
@@ -294,27 +375,29 @@ impl Solver {
                 .map(|m| -m.damage_taken)
                 .sum();
             debug_assert!(utility < 0.0);
-            Some(utility)
-        } else if state.opponent.is_defeated() {
-            // As a naive choice, we simply sum up the health of each member.
-            // This is to ensure we play less risky and don't need to heal as much.
-            // Health can never be negative, but to be sure we cap it at zero.
-            //
-            // In theory we can also factor in the damage taken by the opponent
-            // as dealing more damage could be useful. Whether or not that is a
-            // useful idea depends on the remaining game mechanics (say, e.g., a massive
-            // magical effect that takes a day to recover vs. death by a slap with a stick).
-            let utility = state
-                .initiator
-                .members
-                .iter()
-                .map(|m| m.health.max(0.0))
-                .sum();
-            debug_assert!(utility > 0.0);
-            Some(utility)
+            return TerminalState::Defeat(utility);
+        }
+
+        // As a naive choice, we simply sum up the health of each member.
+        // This is to ensure we play less risky and don't need to heal as much.
+        // Health can never be negative, but to be sure we cap it at zero.
+        //
+        // In theory we can also factor in the damage taken by the opponent
+        // as dealing more damage could be useful. Whether or not that is a
+        // useful idea depends on the remaining game mechanics (say, e.g., a massive
+        // magical effect that takes a day to recover vs. death by a slap with a stick).
+        let utility = state
+            .initiator
+            .members
+            .iter()
+            .map(|m| m.health.max(0.0))
+            .sum();
+        debug_assert!(utility > 0.0);
+
+        if state.opponent.is_defeated() {
+            TerminalState::Win(utility)
         } else {
-            // Neither party has lost, so this is not a terminal state.
-            None
+            TerminalState::Heuristic(utility * 0.1)
         }
     }
 }
@@ -325,17 +408,23 @@ pub struct Outcome {
     pub outcome: OutcomeType,
     /// An optimal path of actions leading to the outcome.
     pub timeline: Vec<Event>,
+    /// The number of node evaluations performed.
+    pub evaluations: usize,
+    /// The number of pruning steps performed.
+    pub cuts: usize,
+    /// The search duration.
+    pub search_duration: Duration,
 }
 
 /// The type of outcome.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub enum OutcomeType {
     /// The initiating party wins.
     Win(f32),
     /// The initiating party loses.
     Lose(f32),
     /// Unknown outcome.
-    Unknown,
+    Unknown(f32),
 }
 
 /// An event in the timeline.
@@ -350,6 +439,14 @@ pub struct Event {
     pub depth: usize,
     /// The state of the conflict after the action took place.
     pub state: Conflict,
+}
+
+/// A tree expansion outcome.
+enum ExpansionResult {
+    /// A new node was added.
+    Expanded(Node),
+    /// No new node was added.
+    Exhausted(Node),
 }
 
 /// A node in the game tree.
@@ -372,7 +469,7 @@ struct Node {
     pub is_maximizing: bool,
     /// The utility value of this node. Only meaningful if this is
     /// a terminal node (i.e. win or loss for either side).
-    pub value: f32,
+    pub value: Value,
     /// The list of all known direct children of this node.
     pub child_nodes: Vec<usize>,
     /// The ID of the child that optimized the value, if any. Could be [`None`]
@@ -394,7 +491,7 @@ impl Node {
             depth: max_depth,
             turn: 0,
             is_maximizing: true,
-            value: f32::NEG_INFINITY,
+            value: Value::new(TerminalState::Heuristic(f32::NEG_INFINITY)),
             best_child: None,
             action: None,
             state: conflict,
@@ -408,6 +505,7 @@ impl Node {
     pub fn branch(
         id: usize,
         parent_id: usize,
+        parent_value: &Value,
         is_maximizing: bool,
         depth: usize,
         turn: usize,
@@ -419,9 +517,9 @@ impl Node {
             parent_id: Some(parent_id),
             is_maximizing,
             value: if is_maximizing {
-                f32::NEG_INFINITY
+                parent_value.with_value(TerminalState::Heuristic(f32::NEG_INFINITY))
             } else {
-                f32::INFINITY
+                parent_value.with_value(TerminalState::Heuristic(f32::INFINITY))
             },
             best_child: None,
             depth,
@@ -430,6 +528,16 @@ impl Node {
             action_iter: None,
             state,
             child_nodes: Vec::default(),
+        }
+    }
+}
+
+impl Display for Node {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        if self.is_maximizing {
+            write!(f, "↑{}", self.id)
+        } else {
+            write!(f, "↓{}", self.id)
         }
     }
 }
@@ -469,7 +577,7 @@ mod tests {
             opponent: villains,
         };
 
-        let solution = Solver::engage(&conflict);
+        let solution = Solver::engage(&conflict, 200);
         assert_eq!(solution.outcome, OutcomeType::Win(5.0));
     }
 
@@ -509,7 +617,7 @@ mod tests {
             opponent: villains,
         };
 
-        let solution = Solver::engage(&conflict);
+        let solution = Solver::engage(&conflict, 100);
         assert_eq!(solution.outcome, OutcomeType::Win(10.0));
     }
 

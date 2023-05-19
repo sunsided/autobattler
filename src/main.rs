@@ -13,6 +13,7 @@ mod conflict;
 mod party;
 mod party_member;
 mod solver;
+mod value;
 mod weapon;
 
 fn main() {
@@ -60,8 +61,12 @@ fn main() {
         opponent: villains,
     };
 
-    let outcome = Solver::engage(&conflict);
+    let outcome = Solver::engage(&conflict, 200);
 
+    println!(
+        "Performed {} evaluations with {} cuts in {:?}",
+        outcome.evaluations, outcome.cuts, outcome.search_duration
+    );
     match outcome.outcome {
         OutcomeType::Win(score) => println!(
             "{} {} with a score of {}.",
@@ -75,10 +80,11 @@ fn main() {
             "The initiating party is defeated".red(),
             score
         ),
-        OutcomeType::Unknown => println!(
-            "{} {}.",
+        OutcomeType::Unknown(score) => println!(
+            "{} {}, the best hypothesis is a score of {}.",
             "TL;DR:".bright_white(),
-            "Anything could happen".white()
+            "Anything could happen".white(),
+            score
         ),
     }
 

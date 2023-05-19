@@ -1,6 +1,6 @@
 use crate::party::Participant;
 use crate::weapon::Weapon;
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 
 /// An applied action.
 #[derive(Debug, Clone, PartialEq)]
@@ -42,6 +42,16 @@ impl Debug for SimpleAttackAction {
         match self.weapon {
             None => write!(f, "fists"),
             Some(ref weapon) => write!(f, "{:?}", weapon),
+        }
+    }
+}
+
+impl Display for AppliedAction {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self.action {
+            Action::SimpleAttack(_) => {
+                write!(f, "{} attacks {}", self.source, self.target)
+            }
         }
     }
 }

@@ -72,6 +72,12 @@ impl Iterator for ActionIterator {
                 return None;
             }
 
+            // Ensure the current member can act
+            if !self.current.members[self.current_index].can_act() {
+                self.current_index += 1;
+                continue;
+            }
+
             if self.iter.is_none() {
                 let member = self.current.members[self.current_index].clone();
                 let target_range = 0..self.opponent.members.len();
@@ -89,7 +95,6 @@ impl Iterator for ActionIterator {
 
                     // TODO: Rework action generation - should only generate applicable actions to begin with.
                     if !opponent.is_applicable(&action) {
-                        self.current_index += 1;
                         continue;
                     }
 
