@@ -29,7 +29,7 @@ for _Brull_ to attack _Molphige_ first to ensure they can never make a move to b
 That is indeed what happens:
 
 ```
-Performed 705 evaluations with 167 cuts in 259.724µs
+Performed 921 evaluations with 221 cuts at depth 8 in 309.766µs. The encounter has 5 turns.
 TL;DR: The initiating party wins with a score of 10.
 
 On the attacking side:
@@ -58,6 +58,33 @@ Turn 4 (discovered at step 4):
 Turn 5 (discovered at step 5):
   Brull whacks Ziuon with their fists, dealing 10 damage
    ⇒ Ziuon has given up on being alive
+```
+
+If retreats are allowed for the enemy party, the game has a different outcome: The enemy
+now decides to flee at their first chance. The hero party still gets an extra move, but it is not
+enough to result in a defeat of the enemy.
+
+```
+Performed 1063 evaluations with 247 cuts at depth 8 in 360.599µs. The encounter has 3 turns.
+TL;DR: The initiating party let the opponent flee with a score of 2.
+
+On the attacking side:
+- Brull, with 20 health and their fists (10 damage)
+
+On the defending side:
+- Ziuon, with 15 health and a stick (5 damage)
+- Molphige, with 10 health and their fists (20 damage)
+
+Turn 1 (discovered at step 1):
+  Brull whacks Molphige with their fists, dealing 10 damage
+   ⇒ Molphige has given up on being alive
+
+Turn 2 (discovered at step 2):
+  the party flees
+
+Turn 3 (discovered at step 3):
+  Brull whacks Ziuon with their fists, dealing 10 damage
+   ⇒ Ziuon now has 5 health
 ```
 
 ## Rules of ~~Engagement~~ the Game
