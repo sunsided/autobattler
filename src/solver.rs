@@ -36,8 +36,14 @@ impl Solver {
         // initialized to negative infinity.
         let mut nodes = vec![Node::new_root(conflict.clone(), 0)];
 
+        // Some statistics.
+        let mut evaluations = 0;
+        let mut pruning_cuts = 0;
+
         let mut dfs_queue = Vec::from([0]);
         'dfs: while let Some(id) = dfs_queue.pop() {
+            evaluations += 1;
+
             // The clone here is a hack to get around borrowing rules.
             let mut node = nodes[id].clone();
             trace!(
@@ -70,6 +76,7 @@ impl Solver {
                     beta = node.value.beta
                 );
 
+                pruning_cuts += 1;
                 Self::propagate_to_parent(&mut nodes, &mut node);
                 continue 'dfs;
             } else if !node.is_maximizing && node.value.is_alpha_cutoff() {
@@ -79,6 +86,7 @@ impl Solver {
                     alpha = node.value.alpha
                 );
 
+                pruning_cuts += 1;
                 Self::propagate_to_parent(&mut nodes, &mut node);
                 continue 'dfs;
             } else if !node.is_maximizing && node.value.is_negative() {
@@ -87,6 +95,7 @@ impl Solver {
                     value = node.value.value
                 );
 
+                pruning_cuts += 1;
                 Self::propagate_to_parent(&mut nodes, &mut node);
                 continue 'dfs;
             }
@@ -140,7 +149,7 @@ impl Solver {
             nodes[node_id] = node;
         }
 
-        Self::backtrack(nodes)
+        Self::backtrack(nodes, evaluations, pruning_cuts)
     }
 
     /// Implements the minimax recursion as an expansion of the search tree.
@@ -261,7 +270,7 @@ impl Solver {
     }
 
     /// Backtracks the events from the start to one of the the most likely outcomes.
-    fn backtrack(nodes: Vec<Node>) -> Outcome {
+    fn backtrack(nodes: Vec<Node>, evaluations: usize, pruning_cuts: usize) -> Outcome {
         // The outcome is positive only if the value of the start
         // node is positive and under the assumption that the opposing
         // player attempts to play optimally.
@@ -295,6 +304,8 @@ impl Solver {
         Outcome {
             outcome,
             timeline: stack,
+            evaluations,
+            cuts: pruning_cuts,
         }
     }
 
@@ -388,6 +399,10 @@ pub struct Outcome {
     pub outcome: OutcomeType,
     /// An optimal path of actions leading to the outcome.
     pub timeline: Vec<Event>,
+    /// The number of node evaluations performed.
+    pub evaluations: usize,
+    /// The number of pruning steps performed.
+    pub cuts: usize,
 }
 
 /// The type of outcome.

@@ -63,6 +63,10 @@ fn main() {
 
     let outcome = Solver::engage(&conflict, 200);
 
+    println!(
+        "Performed {} evaluations with {} cuts",
+        outcome.evaluations, outcome.cuts
+    );
     match outcome.outcome {
         OutcomeType::Win(score) => println!(
             "{} {} with a score of {}.",
