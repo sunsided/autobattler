@@ -62,7 +62,7 @@ impl Solver {
             let continue_expansion = if node.depth == max_depth {
                 *node.value = get_utility(&node.state);
                 nodes[node.id].value = node.value.clone();
-                log_max_search_reached(&node);
+                log_max_search_depth_reached(&node);
                 false
             } else if node.is_maximizing && node.value.is_beta_cutoff() {
                 log_beta_cutoff(&node);
@@ -558,7 +558,7 @@ fn log_exploring_node(node: &Node) {
 }
 
 #[inline]
-fn log_max_search_reached(node: &Node) {
+fn log_max_search_depth_reached(node: &Node) {
     trace!(
         "Search depth reached, terminating search on node {node} with {value}",
         value = *node.value
