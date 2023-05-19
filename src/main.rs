@@ -2,7 +2,7 @@ use crate::action::{Action, AppliedAction};
 use crate::conflict::Conflict;
 use crate::party::{Participant, Party};
 use crate::party_member::PartyMember;
-use crate::solver::{OutcomeType, Solver};
+use crate::solver::{OutcomeType, Solver, SolverStrategy};
 use crate::weapon::{Fists, Stick, Weapon};
 use colored::{ColoredString, Colorize};
 use rnglib::{Language, RNG};
@@ -68,7 +68,7 @@ fn main() {
         opponent: villains,
     };
 
-    let outcome = Solver::engage(&conflict, 10);
+    let outcome = Solver::engage(&conflict, SolverStrategy::IterativeDeepening(10));
 
     println!(
         "Performed {} evaluations with {} cuts at depth {} in {:?}. The encounter has {} turns.",

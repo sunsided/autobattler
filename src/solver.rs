@@ -10,6 +10,16 @@ use std::time::{Duration, Instant};
 
 pub struct Solver;
 
+/// The strategy to use with the solver.
+#[derive(Debug, Copy, Clone)]
+#[allow(dead_code)]
+pub enum SolverStrategy {
+    /// Use a simple depth-limited search.
+    DepthLimited(usize),
+    /// Use iterative deepening.
+    IterativeDeepening(usize),
+}
+
 impl Solver {
     /// Predicts the sequence of optimal moves to resolve the conflict,
     /// in favor of the initiating party.
@@ -20,9 +30,39 @@ impl Solver {
     ///
     /// ## Returns
     /// The [`Outcome`] of the conflict.
-    pub fn engage(conflict: &Conflict, max_depth: usize) -> Outcome {
-        let max_depth = max_depth.max(1);
-        Self::minimax(conflict, max_depth)
+    pub fn engage(conflict: &Conflict, strategy: SolverStrategy) -> Outcome {
+        match strategy {
+            SolverStrategy::DepthLimited(max_depth) => {
+                let max_depth = max_depth.max(1);
+                Self::minimax(conflict, max_depth)
+            }
+            SolverStrategy::IterativeDeepening(max_depth) => {
+                let max_depth = max_depth.max(1);
+                let mut depth = 1;
+                loop {
+                    log_increase_search_depth_to(depth, max_depth);
+                    let outcome = Self::minimax(conflict, depth);
+                    let should_stop = match outcome.outcome {
+                        OutcomeType::Win(_) => true,
+                        OutcomeType::Lose(_) => false,
+                        OutcomeType::Remain(_) => false, // we may want to accept retreats too
+                        OutcomeType::Retreat(_) => false,
+                        OutcomeType::Unknown(_) => false,
+                    };
+
+                    if !outcome.depth_limited || should_stop {
+                        log_finish_iddfs(depth);
+                        return outcome;
+                    }
+
+                    depth += 1;
+                    if depth > max_depth {
+                        log_stop_iddfs(max_depth);
+                        return outcome;
+                    }
+                }
+            }
+        }
     }
 
     /// Uses the minimax algorithm to find the optimal outcome.
@@ -37,6 +77,8 @@ impl Solver {
         // We start with a maximizing step, so the value is
         // initialized to negative infinity.
         let mut nodes = vec![Node::new_root(conflict.clone(), 0)];
+
+        let mut depth_limited = false;
 
         // Track expansion statistics.
         let mut evaluations = 0;
@@ -59,12 +101,7 @@ impl Solver {
             // Note that we can only know if a state is terminal once we have
             // fully expanded it. This information is available further below,
             // after the node expansion step.
-            let continue_expansion = if node.depth == max_depth {
-                *node.value = get_utility(&node.state);
-                nodes[node.id].value = node.value.clone();
-                log_max_search_depth_reached(&node);
-                false
-            } else if node.is_maximizing && node.value.is_beta_cutoff() {
+            let continue_expansion = if node.is_maximizing && node.value.is_beta_cutoff() {
                 log_beta_cutoff(&node);
                 pruning_cuts += 1;
                 false
@@ -75,6 +112,12 @@ impl Solver {
             } else if !node.is_maximizing && node.value.is_negative() {
                 log_minimizer_detected_defeat(&node);
                 pruning_cuts += 1;
+                false
+            } else if node.depth == max_depth {
+                *node.value = get_utility(&node.state);
+                nodes[node.id].value = node.value.clone();
+                depth_limited = true;
+                log_max_search_depth_reached(&node);
                 false
             } else {
                 true
@@ -90,15 +133,6 @@ impl Solver {
 
             // Handle expansion or exhaustion of the node.
             let node = match expansion_result {
-                ExpansionResult::Expanded(Expansion { parent, child }) => {
-                    // Since the actions were not exhausted yet, we push the parent first
-                    // so that we can continue from it later.
-                    dfs_queue.push(parent.id);
-                    dfs_queue.push(child.id);
-
-                    nodes.push(child);
-                    parent
-                }
                 ExpansionResult::Exhausted(Exhaustion { mut node }) => {
                     let value = if (*node.value).is_finite() {
                         log_node_fully_explored(&node, &nodes);
@@ -118,6 +152,15 @@ impl Solver {
                     Self::propagate_to_parent(&mut nodes, &mut node);
                     node
                 }
+                ExpansionResult::Expanded(Expansion { parent, child }) => {
+                    // Since the actions were not exhausted yet, we push the parent first
+                    // so that we can continue from it later.
+                    dfs_queue.push(parent.id);
+                    dfs_queue.push(child.id);
+
+                    nodes.push(child);
+                    parent
+                }
             };
 
             // Replace the node in the original array with our clone.
@@ -133,6 +176,7 @@ impl Solver {
             pruning_cuts,
             max_visited_depth,
             search_duration,
+            depth_limited,
         )
     }
 
@@ -267,6 +311,7 @@ impl Solver {
         pruning_cuts: usize,
         max_visited_depth: usize,
         search_duration: Duration,
+        depth_limited: bool,
     ) -> Outcome {
         // The outcome is positive only if the value of the start
         // node is positive and under the assumption that the opposing
@@ -308,6 +353,7 @@ impl Solver {
             cuts: pruning_cuts,
             max_visited_depth,
             search_duration,
+            depth_limited,
         }
     }
 
@@ -369,6 +415,8 @@ pub struct Outcome {
     pub search_duration: Duration,
     /// The depth of the deepest node evaluated.
     pub max_visited_depth: usize,
+    /// `true` if the search was depth limited and has more nodes to explore.
+    pub depth_limited: bool,
 }
 
 impl Outcome {
@@ -634,6 +682,21 @@ fn log_expand_node_with_action(node: &Node, child_node: &Node, action: &AppliedA
     trace!("Expand node {node} into {child_node} with action: {action}");
 }
 
+#[inline]
+fn log_increase_search_depth_to(depth: usize, max_depth: usize) {
+    trace!("Increase search depth to {depth}/{max_depth}");
+}
+
+#[inline]
+fn log_stop_iddfs(max_depth: usize) {
+    trace!("Iterative deepening DFS stopped at depth {max_depth}");
+}
+
+#[inline]
+fn log_finish_iddfs(depth: usize) {
+    trace!("Iterative deepening DFS finished at depth {depth}");
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -651,7 +714,7 @@ mod tests {
             opponent: villains,
         };
 
-        let solution = Solver::engage(&conflict, 200);
+        let solution = Solver::engage(&conflict, SolverStrategy::DepthLimited(200));
         assert_eq!(solution.outcome, OutcomeType::Win(5.0));
     }
 
@@ -667,7 +730,7 @@ mod tests {
 
         // In this version, the enemy is not allowed to flee, so the
         // game takes five turns (three strikes for the heros).
-        let solution = Solver::engage(&conflict, 100);
+        let solution = Solver::engage(&conflict, SolverStrategy::DepthLimited(100));
         assert_eq!(solution.outcome, OutcomeType::Win(10.0));
         assert_eq!(solution.len(), 5);
     }
@@ -687,7 +750,7 @@ mod tests {
         // is to flee after the first initiator move. Since the remaining
         // party always has one extra move, the hero gets either two strikes
         // or three, but three strikes are enough to defeat the enemy.
-        let solution = Solver::engage(&conflict, 100);
+        let solution = Solver::engage(&conflict, SolverStrategy::DepthLimited(100));
         assert_eq!(solution.outcome, OutcomeType::Remain(2.0));
         assert_eq!(solution.len(), 3);
     }
@@ -702,7 +765,7 @@ mod tests {
             opponent: villains,
         };
 
-        let solution = Solver::engage(&conflict, 100);
+        let solution = Solver::engage(&conflict, SolverStrategy::DepthLimited(100));
 
         // Since the hero will be one-hit by the second enemy, the only
         // meaningful action is to flee in turn one.
@@ -722,7 +785,7 @@ mod tests {
             opponent: villains,
         };
 
-        let solution = Solver::engage(&conflict, 100);
+        let solution = Solver::engage(&conflict, SolverStrategy::DepthLimited(100));
 
         // In this setup the hero is not allowed to flee, leading to a defeat.
         assert_eq!(solution.outcome, OutcomeType::Lose(-20.0));
