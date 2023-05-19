@@ -2,6 +2,7 @@ use crate::action::{AppliedAction, TargetedAction};
 use crate::action_iterator::ActionIterator;
 use crate::conflict::Conflict;
 use crate::party::Participant;
+use crate::utility_value::get_utility;
 use crate::value::{Cutoff, TerminalState, Value};
 use log::trace;
 use std::fmt::{Display, Formatter};
@@ -59,7 +60,7 @@ impl Solver {
             // fully expanded it. This information is available further below,
             // after the node expansion step.
             let continue_expansion = if node.depth == max_depth {
-                *node.value = Self::get_utility(&node.state);
+                *node.value = get_utility(&node.state);
                 nodes[node.id].value = node.value.clone();
                 log_max_search_reached(&node);
                 false
@@ -104,7 +105,7 @@ impl Solver {
                         *node.value
                     } else {
                         // If this is a terminal node we either have a winner or loser.
-                        let value = Self::get_utility(&node.state);
+                        let value = get_utility(&node.state);
                         log_node_terminal_state(&node, &value, &nodes);
                         value
                     };
@@ -351,55 +352,6 @@ impl Solver {
         }
 
         Cutoff::None
-    }
-
-    /// Gets the utility of the current node. Will return `None` if this
-    /// is not a terminal state, i.e. no party has won or lost.
-    fn get_utility(state: &Conflict) -> TerminalState {
-        if state.initiator.is_defeated() || state.initiator.has_retreated() {
-            // The current party being dead is a terminal state and always is a negative reward.
-            // We sum up the total damage taken to punish strong defeats
-            // harder than slight defeats.
-            let utility = state
-                .initiator
-                .members
-                .iter()
-                .map(|m| -m.damage_taken)
-                .sum();
-            debug_assert!(utility < 0.0);
-            return if state.initiator.is_defeated() {
-                TerminalState::Defeat(utility)
-            } else {
-                TerminalState::Retreat(utility * 0.1)
-            };
-        }
-
-        // As a naive choice, we simply sum up the health of each member.
-        // This is to ensure we play less risky and don't need to heal as much.
-        // Health can never be negative, but to be sure we cap it at zero.
-        //
-        // In theory we can also factor in the damage taken by the opponent
-        // as dealing more damage could be useful. Whether or not that is a
-        // useful idea depends on the remaining game mechanics (say, e.g., a massive
-        // magical effect that takes a day to recover vs. death by a slap with a stick).
-        let utility = state
-            .initiator
-            .members
-            .iter()
-            .map(|m| m.health.max(0.0))
-            .sum();
-        debug_assert!(utility > 0.0);
-
-        if state.opponent.is_defeated() {
-            TerminalState::Win(utility)
-        } else if state.opponent.has_retreated() {
-            // This is a somewhat delicate balancing. If the utility
-            // value for a remain is equal to a win, the opposing party
-            // changes their preferences.
-            TerminalState::Remain(utility * 0.1)
-        } else {
-            TerminalState::Heuristic(utility * 0.1)
-        }
     }
 }
 

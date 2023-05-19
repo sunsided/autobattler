@@ -13,6 +13,7 @@ mod conflict;
 mod party;
 mod party_member;
 mod solver;
+mod utility_value;
 mod value;
 mod weapon;
 

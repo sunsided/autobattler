@@ -105,3 +105,4 @@ As for actions,
 - [x] Multiple turns per party ([`src/action_iterator.rs`](src/action_iterator.rs)).
 - [x] Implement Alpha-Beta pruning ([`src/value.rs`](src/value.rs)).
 - [ ] Implement Iterative Deepening.
+- [ ] Implement A*-like heuristics.
