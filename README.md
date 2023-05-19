@@ -12,9 +12,9 @@ This is definitely not rocket science being done here. Expect more minimax than 
 
 ## Things to do
 
-- [x] Regular minimax.
-- [x] Minimax with multiple turns per party.
-- [x] Implement Alpha-Beta pruning.
+- [x] Regular minimax ([`src/solver.rs`](src/solver.rs)).
+- [x] Multiple turns per party ([`src/action_iterator.rs`](src/action_iterator.rs)).
+- [x] Implement Alpha-Beta pruning ([`src/value.rs`](src/value.rs)).
 - [ ] Implement Iterative Deepening.
 
 ## Example outcome
