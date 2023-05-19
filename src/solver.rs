@@ -5,6 +5,7 @@ use crate::party::Participant;
 use crate::value::{Cutoff, TerminalState, Value};
 use log::trace;
 use std::fmt::{Display, Formatter};
+use std::time::{Duration, Instant};
 
 pub struct Solver;
 
@@ -39,6 +40,7 @@ impl Solver {
         // Some statistics.
         let mut evaluations = 0;
         let mut pruning_cuts = 0;
+        let start_time = Instant::now();
 
         let mut dfs_queue = Vec::from([0]);
         'dfs: while let Some(id) = dfs_queue.pop() {
@@ -149,7 +151,8 @@ impl Solver {
             nodes[node_id] = node;
         }
 
-        Self::backtrack(nodes, evaluations, pruning_cuts)
+        let search_duration = Instant::now() - start_time;
+        Self::backtrack(nodes, evaluations, pruning_cuts, search_duration)
     }
 
     /// Implements the minimax recursion as an expansion of the search tree.
@@ -270,7 +273,12 @@ impl Solver {
     }
 
     /// Backtracks the events from the start to one of the the most likely outcomes.
-    fn backtrack(nodes: Vec<Node>, evaluations: usize, pruning_cuts: usize) -> Outcome {
+    fn backtrack(
+        nodes: Vec<Node>,
+        evaluations: usize,
+        pruning_cuts: usize,
+        search_duration: Duration,
+    ) -> Outcome {
         // The outcome is positive only if the value of the start
         // node is positive and under the assumption that the opposing
         // player attempts to play optimally.
@@ -306,6 +314,7 @@ impl Solver {
             timeline: stack,
             evaluations,
             cuts: pruning_cuts,
+            search_duration,
         }
     }
 
@@ -403,6 +412,8 @@ pub struct Outcome {
     pub evaluations: usize,
     /// The number of pruning steps performed.
     pub cuts: usize,
+    /// The search duration.
+    pub search_duration: Duration,
 }
 
 /// The type of outcome.
