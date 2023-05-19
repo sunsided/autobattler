@@ -28,6 +28,7 @@ fn main() {
             weapon: Weapon::Fists(Fists { damage: 10.0 }),
             can_act: true,
         }],
+        can_retreat: true,
         retreated: false,
     };
 
@@ -52,6 +53,7 @@ fn main() {
                 can_act: true,
             },
         ],
+        can_retreat: true,
         retreated: false,
     };
 
@@ -82,6 +84,18 @@ fn main() {
             "{} {} with a score of {}.",
             "TL;DR:".bright_white(),
             "The initiating party is defeated".red(),
+            score
+        ),
+        OutcomeType::Remain(score) => println!(
+            "{} {} with a score of {}.",
+            "TL;DR:".bright_white(),
+            "The initiating party let the opponent flee".red(),
+            score
+        ),
+        OutcomeType::Retreat(score) => println!(
+            "{} {} with a score of {}.",
+            "TL;DR:".bright_white(),
+            "The initiating party retreated".red(),
             score
         ),
         OutcomeType::Unknown(score) => println!(

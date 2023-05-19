@@ -79,6 +79,7 @@ impl Iterator for ActionIterator {
                     // No point in running away if the opponent is already running
                     // or defeated. Likewise, ensure we can perform an action at all.
                     if self.current.can_act()
+                        && self.current.can_retreat()
                         && !self.opponent.has_retreated()
                         && !self.opponent.is_defeated()
                     {
@@ -195,6 +196,7 @@ mod tests {
                 health: 25.0,
                 damage_taken: 0.0,
                 weapon: Weapon::Stick(Stick { damage: 10.0 }),
+                can_act: true,
             },
             0..10,
         );
@@ -238,6 +240,7 @@ mod tests {
                 health: 25.0,
                 damage_taken: 0.0,
                 weapon: Weapon::Stick(Stick { damage: 10.0 }),
+                can_act: true,
             },
             10..20,
         );
@@ -281,14 +284,18 @@ mod tests {
                     health: 25.0,
                     damage_taken: 0.0,
                     weapon: Weapon::Stick(Stick { damage: 10.0 }),
+                    can_act: true,
                 },
                 PartyMember {
                     id: 1,
                     health: 25.0,
                     damage_taken: 0.0,
                     weapon: Weapon::Fists(Fists { damage: 5.0 }),
+                    can_act: true,
                 },
             ],
+            can_retreat: false,
+            retreated: false,
         };
 
         let villains = Party {
@@ -299,14 +306,18 @@ mod tests {
                     health: 25.0,
                     damage_taken: 0.0,
                     weapon: Weapon::Stick(Stick { damage: 10.0 }),
+                    can_act: true,
                 },
                 PartyMember {
                     id: 1,
                     health: 25.0,
                     damage_taken: 0.0,
                     weapon: Weapon::Stick(Stick { damage: 10.0 }),
+                    can_act: true,
                 },
             ],
+            can_retreat: false,
+            retreated: false,
         };
 
         let mut iter = ActionIterator::new(heroes, villains);
@@ -314,7 +325,7 @@ mod tests {
         // First player attacks first opponent.
         assert_eq!(
             iter.next(),
-            Some(AppliedAction {
+            Some(AppliedAction::Targeted(TargetedAction {
                 action: Action::SimpleAttack(SimpleAttackAction {
                     weapon: Some(Weapon::Stick(Stick { damage: 10.0 })),
                     damage: 10.0
@@ -327,13 +338,13 @@ mod tests {
                     party_id: 1,
                     member_id: 0
                 }
-            })
+            }))
         );
 
         // First player attacks second opponent.
         assert_eq!(
             iter.next(),
-            Some(AppliedAction {
+            Some(AppliedAction::Targeted(TargetedAction {
                 action: Action::SimpleAttack(SimpleAttackAction {
                     weapon: Some(Weapon::Stick(Stick { damage: 10.0 })),
                     damage: 10.0
@@ -346,13 +357,13 @@ mod tests {
                     party_id: 1,
                     member_id: 1
                 }
-            })
+            }))
         );
 
         // First player attacks first opponent.
         assert_eq!(
             iter.next(),
-            Some(AppliedAction {
+            Some(AppliedAction::Targeted(TargetedAction {
                 action: Action::SimpleAttack(SimpleAttackAction {
                     weapon: None,
                     damage: 1.0
@@ -365,13 +376,13 @@ mod tests {
                     party_id: 1,
                     member_id: 0
                 }
-            })
+            }))
         );
 
         // First player attacks second opponent.
         assert_eq!(
             iter.next(),
-            Some(AppliedAction {
+            Some(AppliedAction::Targeted(TargetedAction {
                 action: Action::SimpleAttack(SimpleAttackAction {
                     weapon: None,
                     damage: 1.0
@@ -384,13 +395,13 @@ mod tests {
                     party_id: 1,
                     member_id: 1
                 }
-            })
+            }))
         );
 
         // Second player attacks first opponent.
         assert_eq!(
             iter.next(),
-            Some(AppliedAction {
+            Some(AppliedAction::Targeted(TargetedAction {
                 action: Action::SimpleAttack(SimpleAttackAction {
                     weapon: Some(Weapon::Fists(Fists { damage: 5.0 })),
                     damage: 5.0
@@ -403,13 +414,13 @@ mod tests {
                     party_id: 1,
                     member_id: 0
                 }
-            })
+            }))
         );
 
         // Second player attacks second opponent.
         assert_eq!(
             iter.next(),
-            Some(AppliedAction {
+            Some(AppliedAction::Targeted(TargetedAction {
                 action: Action::SimpleAttack(SimpleAttackAction {
                     weapon: Some(Weapon::Fists(Fists { damage: 5.0 })),
                     damage: 5.0
@@ -422,13 +433,13 @@ mod tests {
                     party_id: 1,
                     member_id: 1
                 }
-            })
+            }))
         );
 
         // Second player attacks first opponent.
         assert_eq!(
             iter.next(),
-            Some(AppliedAction {
+            Some(AppliedAction::Targeted(TargetedAction {
                 action: Action::SimpleAttack(SimpleAttackAction {
                     weapon: None,
                     damage: 1.0
@@ -441,13 +452,13 @@ mod tests {
                     party_id: 1,
                     member_id: 0
                 }
-            })
+            }))
         );
 
         // Second player attacks second opponent.
         assert_eq!(
             iter.next(),
-            Some(AppliedAction {
+            Some(AppliedAction::Targeted(TargetedAction {
                 action: Action::SimpleAttack(SimpleAttackAction {
                     weapon: None,
                     damage: 1.0
@@ -460,7 +471,7 @@ mod tests {
                     party_id: 1,
                     member_id: 1
                 }
-            })
+            }))
         );
 
         assert_eq!(iter.next(), None);

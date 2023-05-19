@@ -133,6 +133,7 @@ mod tests {
             health: 100.0,
             damage_taken: 0.0,
             weapon: Weapon::Stick(Stick { damage: 0.0 }),
+            can_act: true,
         };
 
         // Apply more damage than the subject has health.
@@ -157,6 +158,7 @@ mod tests {
             health: 100.0,
             damage_taken: 0.0,
             weapon: Weapon::Stick(Stick { damage: 0.0 }),
+            can_act: true,
         };
 
         let mut iter = member.clone().actions();

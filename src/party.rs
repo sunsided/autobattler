@@ -8,6 +8,8 @@ pub struct Party {
     pub id: usize,
     /// All members of the party.
     pub members: Vec<PartyMember>,
+    /// Indicates whether the party is allowed to retreat.
+    pub can_retreat: bool,
     /// Indicates if the party has retreated from the encounter.
     pub retreated: bool,
 }
@@ -24,6 +26,7 @@ pub struct Participant {
 impl Party {
     /// Makes every member unable to act in the encounter.
     pub fn retreat(&mut self) {
+        debug_assert!(self.can_retreat);
         self.retreated = true;
         for member in self.members.iter_mut() {
             member.can_act = false;
@@ -37,6 +40,11 @@ impl Party {
     /// are deceased or have fled the conflict.
     pub fn is_defeated(&self) -> bool {
         self.members.iter().all(PartyMember::is_dead)
+    }
+
+    /// Returns `true` if the party is able to retreat.
+    pub fn can_retreat(&self) -> bool {
+        self.can_retreat
     }
 
     /// Returns `true` if the party has retreated from the encounter.

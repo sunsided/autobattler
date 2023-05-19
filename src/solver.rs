@@ -274,6 +274,8 @@ impl Solver {
         let outcome = match value {
             TerminalState::Win(score) => OutcomeType::Win(score),
             TerminalState::Defeat(score) => OutcomeType::Lose(score),
+            TerminalState::Remain(score) => OutcomeType::Remain(score),
+            TerminalState::Retreat(score) => OutcomeType::Retreat(score),
             TerminalState::Heuristic(score) => OutcomeType::Unknown(score),
             TerminalState::OpenUnexplored(score) => OutcomeType::Unknown(score),
         };
@@ -354,7 +356,7 @@ impl Solver {
     /// Gets the utility of the current node. Will return `None` if this
     /// is not a terminal state, i.e. no party has won or lost.
     fn get_utility(state: &Conflict) -> TerminalState {
-        if state.initiator.is_defeated() {
+        if state.initiator.is_defeated() || state.initiator.has_retreated() {
             // The current party being dead is a terminal state and always is a negative reward.
             // We sum up the total damage taken to punish strong defeats
             // harder than slight defeats.
@@ -365,15 +367,11 @@ impl Solver {
                 .map(|m| -m.damage_taken)
                 .sum();
             debug_assert!(utility < 0.0);
-            return TerminalState::Defeat(utility);
-        }
-
-        if state.opponent.has_retreated() {
-            return TerminalState::Win(0.0);
-        }
-
-        if state.initiator.has_retreated() {
-            return TerminalState::Defeat(0.0);
+            return if state.initiator.is_defeated() {
+                TerminalState::Defeat(utility)
+            } else {
+                TerminalState::Retreat(utility * 0.1)
+            };
         }
 
         // As a naive choice, we simply sum up the health of each member.
@@ -394,6 +392,11 @@ impl Solver {
 
         if state.opponent.is_defeated() {
             TerminalState::Win(utility)
+        } else if state.opponent.has_retreated() {
+            // This is a somewhat delicate balancing. If the utility
+            // value for a remain is equal to a win, the opposing party
+            // changes their preferences.
+            TerminalState::Remain(utility * 0.1)
         } else {
             TerminalState::Heuristic(utility * 0.1)
         }
@@ -423,6 +426,10 @@ pub enum OutcomeType {
     Win(f32),
     /// The initiating party loses.
     Lose(f32),
+    /// The initiating party remained after the opponent retreated.
+    Remain(f32),
+    /// The initiating party retreated.
+    Retreat(f32),
     /// Unknown outcome.
     Unknown(f32),
 }
@@ -646,6 +653,14 @@ fn log_node_terminal_state(node: &Node, value: &TerminalState, nodes: &[Node]) {
             "Node {node} (child of {parent_node}) is a terminal, got value {value} (defeat)",
             parent_node = nodes[node.parent_id.unwrap_or(0)]
         ),
+        TerminalState::Remain(value) => trace!(
+            "Node {node} (child of {parent_node}) is a terminal, got value {value} (opponent retreated)",
+            parent_node = nodes[node.parent_id.unwrap_or(0)]
+        ),
+        TerminalState::Retreat(value) => trace!(
+            "Node {node} (child of {parent_node}) is a terminal, got value {value} (retreat)",
+            parent_node = nodes[node.parent_id.unwrap_or(0)]
+        ),
         TerminalState::Heuristic(value) => trace!(
             "Node {node} (child of {parent_node}) exhausted, got value {value} (heuristic)",
             parent_node = nodes[node.parent_id.unwrap_or(0)]
@@ -659,11 +674,6 @@ fn log_node_terminal_state(node: &Node, value: &TerminalState, nodes: &[Node]) {
 #[inline]
 fn log_expand_node_with_action(node: &Node, child_node: &Node, action: &AppliedAction) {
     trace!("Expand node {node} into {child_node} with action: {action}");
-}
-
-#[inline]
-fn log_stop_expansion_of_node_with_action(node: &Node, action: &AppliedAction) {
-    trace!("Stopping expansion of node {node} due to action: {action}");
 }
 
 #[cfg(test)]
@@ -682,7 +692,10 @@ mod tests {
                 health: 25.0,
                 damage_taken: 0.0,
                 weapon: Weapon::Stick(Stick { damage: 10.0 }),
+                can_act: true,
             }],
+            can_retreat: false,
+            retreated: false,
         };
 
         let villains = Party {
@@ -692,7 +705,10 @@ mod tests {
                 health: 25.0,
                 damage_taken: 0.0,
                 weapon: Weapon::Stick(Stick { damage: 10.0 }),
+                can_act: true,
             }],
+            can_retreat: false,
+            retreated: false,
         };
 
         let conflict = Conflict {
@@ -713,7 +729,10 @@ mod tests {
                 health: 20.0,
                 damage_taken: 0.0,
                 weapon: Weapon::Fists(Fists { damage: 10.0 }),
+                can_act: true,
             }],
+            can_retreat: false,
+            retreated: false,
         };
 
         let villains = Party {
@@ -724,14 +743,18 @@ mod tests {
                     health: 15.0,
                     damage_taken: 0.0,
                     weapon: Weapon::Stick(Stick { damage: 5.0 }),
+                    can_act: true,
                 },
                 PartyMember {
                     id: 1,
                     health: 10.0,
                     damage_taken: 0.0,
                     weapon: Weapon::Fists(Fists { damage: 20.0 }),
+                    can_act: true,
                 },
             ],
+            can_retreat: false,
+            retreated: false,
         };
 
         let conflict = Conflict {
