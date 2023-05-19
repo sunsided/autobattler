@@ -103,6 +103,15 @@ impl Iterator for AttackIterator {
                 self.index += 1;
                 Some(action)
             }
+            1 => {
+                let action = Action::SimpleAttack(SimpleAttackAction {
+                    weapon: None,
+                    damage: 1.0,
+                });
+
+                self.index += 1;
+                Some(action)
+            }
             _ => None,
         }
     }
