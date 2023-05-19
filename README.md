@@ -10,13 +10,6 @@ Bard's Tale, etc.
 
 This is definitely not rocket science being done here. Expect more minimax than AlphaZero.
 
-## Things to do
-
-- [x] Regular minimax ([`src/solver.rs`](src/solver.rs)).
-- [x] Multiple turns per party ([`src/action_iterator.rs`](src/action_iterator.rs)).
-- [x] Implement Alpha-Beta pruning ([`src/value.rs`](src/value.rs)).
-- [ ] Implement Iterative Deepening.
-
 ## Example outcome
 
 The following is an example of how it may unfold.
@@ -89,22 +82,26 @@ Turn 3 (discovered at step 3):
 
 ## Rules of ~~Engagement~~ the Game
 
-- Two factions are fighting each other and take turns
-  in making moves.
+- [x] Two factions are fighting each other and take turns in making moves.
 - Within each faction, a party of one or more participants
   is allowed to make a move. Such an action can be,
-  - Attacking a single opponent,
-  - Attacking a group of opponents (area effects),
-  - Applying an effect to a party member,
-  - Skip the turn, i.e. do nothing.
+  - [x] Attacking a single opponent,
+  - [ ] Attacking a group of opponents (area effects),
+  - [ ] Applying an effect to a party member,
+  - [ ] Skip the turn, i.e. do nothing.
 - In addition, the faction as a whole can flee.
+  - [x] If a faction flees, the opposing faction gets one last turn.
+- [ ] Party members can panic and either flee, be paralyzed or attack their own faction.
  
 As for actions,
 
-- Some actions are instantaneous (attacking an enemy),
-- Some actions take preparation (e.g. preparing a magic spell),
-- Some actions have requirements (e.g. a potion must exist to be used)
+- [x] Some actions are instantaneous (attacking an enemy),
+- [ ] Some actions take preparation (e.g. preparing a magic spell),
+- [ ] Some actions have requirements (e.g. a potion must exist to be used)
 
-### Future additions
+## Things to do
 
-- Party members can panic and either flee, be paralyzed or attack their own faction.
+- [x] Regular minimax ([`src/solver.rs`](src/solver.rs)).
+- [x] Multiple turns per party ([`src/action_iterator.rs`](src/action_iterator.rs)).
+- [x] Implement Alpha-Beta pruning ([`src/value.rs`](src/value.rs)).
+- [ ] Implement Iterative Deepening.
