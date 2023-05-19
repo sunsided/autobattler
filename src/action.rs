@@ -40,7 +40,7 @@ impl Debug for Action {
 impl Debug for SimpleAttackAction {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self.weapon {
-            None => write!(f, "fists"),
+            None => write!(f, "angry stare"),
             Some(ref weapon) => write!(f, "{:?}", weapon),
         }
     }

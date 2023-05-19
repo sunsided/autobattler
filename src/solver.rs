@@ -85,10 +85,7 @@ impl Solver {
 
             // Handle expansion or exhaustion of the node.
             let node = match expansion_result {
-                ExpansionResult::Expanded(Expansion { mut parent, child }) => {
-                    // Register the child node as a new child.
-                    parent.child_nodes.push(child.id);
-
+                ExpansionResult::Expanded(Expansion { parent, child }) => {
                     // Since the actions were not exhausted yet, we push the parent first
                     // so that we can continue from it later.
                     dfs_queue.push(parent.id);
@@ -119,6 +116,7 @@ impl Solver {
             };
 
             // Replace the node in the original array with our clone.
+            // This is necessary because the expansion updated the iterator within the node.
             let node_id = node.id;
             nodes[node_id] = node;
         }
@@ -448,8 +446,6 @@ struct Node {
     /// The utility value of this node. Only meaningful if this is
     /// a terminal node (i.e. win or loss for either side).
     pub value: Value,
-    /// The list of all known direct children of this node.
-    pub child_nodes: Vec<usize>,
     /// The ID of the child that optimized the value, if any. Could be [`None`]
     /// if this node itself is a terminal node.
     pub best_child: Option<usize>,
@@ -474,7 +470,6 @@ impl Node {
             action: None,
             state: conflict,
             action_iter: None,
-            child_nodes: Vec::default(),
         }
     }
 
@@ -512,7 +507,6 @@ impl Node {
             action: Some(action),
             action_iter: None,
             state,
-            child_nodes: Vec::default(),
         }
     }
 }
@@ -639,7 +633,6 @@ mod tests {
         };
 
         let conflict = Conflict {
-            turn: 0,
             initiator: heroes,
             opponent: villains,
         };
@@ -679,7 +672,6 @@ mod tests {
         };
 
         let conflict = Conflict {
-            turn: 0,
             initiator: heroes,
             opponent: villains,
         };

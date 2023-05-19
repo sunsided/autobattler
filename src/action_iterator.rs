@@ -195,6 +195,19 @@ mod tests {
             );
         }
 
+        for t in 0..10 {
+            assert_eq!(
+                iter.next(),
+                Some((
+                    Action::SimpleAttack(SimpleAttackAction {
+                        weapon: None,
+                        damage: 1.0
+                    }),
+                    t
+                ))
+            );
+        }
+
         assert_eq!(iter.next(), None);
     }
 
@@ -219,6 +232,19 @@ mod tests {
                     Action::SimpleAttack(SimpleAttackAction {
                         weapon: Some(Weapon::Stick(Stick { damage: 10.0 })),
                         damage: 10.0
+                    }),
+                    t
+                ))
+            );
+        }
+
+        for t in 10..20 {
+            assert_eq!(
+                iter.next(),
+                Some((
+                    Action::SimpleAttack(SimpleAttackAction {
+                        weapon: None,
+                        damage: 1.0
                     }),
                     t
                 ))
@@ -306,6 +332,44 @@ mod tests {
             })
         );
 
+        // First player attacks first opponent.
+        assert_eq!(
+            iter.next(),
+            Some(AppliedAction {
+                action: Action::SimpleAttack(SimpleAttackAction {
+                    weapon: None,
+                    damage: 1.0
+                }),
+                source: Participant {
+                    party_id: 0,
+                    member_id: 0
+                },
+                target: Participant {
+                    party_id: 1,
+                    member_id: 0
+                }
+            })
+        );
+
+        // First player attacks second opponent.
+        assert_eq!(
+            iter.next(),
+            Some(AppliedAction {
+                action: Action::SimpleAttack(SimpleAttackAction {
+                    weapon: None,
+                    damage: 1.0
+                }),
+                source: Participant {
+                    party_id: 0,
+                    member_id: 0
+                },
+                target: Participant {
+                    party_id: 1,
+                    member_id: 1
+                }
+            })
+        );
+
         // Second player attacks first opponent.
         assert_eq!(
             iter.next(),
@@ -332,6 +396,44 @@ mod tests {
                 action: Action::SimpleAttack(SimpleAttackAction {
                     weapon: Some(Weapon::Fists(Fists { damage: 5.0 })),
                     damage: 5.0
+                }),
+                source: Participant {
+                    party_id: 0,
+                    member_id: 1
+                },
+                target: Participant {
+                    party_id: 1,
+                    member_id: 1
+                }
+            })
+        );
+
+        // Second player attacks first opponent.
+        assert_eq!(
+            iter.next(),
+            Some(AppliedAction {
+                action: Action::SimpleAttack(SimpleAttackAction {
+                    weapon: None,
+                    damage: 1.0
+                }),
+                source: Participant {
+                    party_id: 0,
+                    member_id: 1
+                },
+                target: Participant {
+                    party_id: 1,
+                    member_id: 0
+                }
+            })
+        );
+
+        // Second player attacks second opponent.
+        assert_eq!(
+            iter.next(),
+            Some(AppliedAction {
+                action: Action::SimpleAttack(SimpleAttackAction {
+                    weapon: None,
+                    damage: 1.0
                 }),
                 source: Participant {
                     party_id: 0,

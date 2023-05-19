@@ -163,6 +163,13 @@ mod tests {
                 damage: 0.0
             }))
         );
+        assert_eq!(
+            iter.next(),
+            Some(Action::SimpleAttack(SimpleAttackAction {
+                weapon: None,
+                damage: 1.0
+            }))
+        );
         assert_eq!(iter.next(), None);
     }
 }
