@@ -60,11 +60,11 @@ fn main() {
         opponent: villains,
     };
 
-    let outcome = Solver::engage(&conflict, 200);
+    let outcome = Solver::engage(&conflict, 10);
 
     println!(
-        "Performed {} evaluations with {} cuts in {:?}",
-        outcome.evaluations, outcome.cuts, outcome.search_duration
+        "Performed {} evaluations with {} cuts at depth {} in {:?}",
+        outcome.evaluations, outcome.cuts, outcome.max_visited_depth, outcome.search_duration
     );
     match outcome.outcome {
         OutcomeType::Win(score) => println!(

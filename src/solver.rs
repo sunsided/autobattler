@@ -40,6 +40,7 @@ impl Solver {
         // Track expansion statistics.
         let mut evaluations = 0;
         let mut pruning_cuts = 0;
+        let mut max_visited_depth = 0;
         let start_time = Instant::now();
 
         let mut dfs_queue = Vec::from([0]);
@@ -49,6 +50,9 @@ impl Solver {
             // The clone here is a hack to get around borrowing rules.
             let mut node = nodes[id].clone();
             log_exploring_node(&node);
+
+            // Track the deepest depths.
+            max_visited_depth = max_visited_depth.max(node.depth);
 
             // Terminate iteration if the look-ahead depth is reached.
             // Note that we can only know if a state is terminal once we have
@@ -122,7 +126,13 @@ impl Solver {
         }
 
         let search_duration = Instant::now() - start_time;
-        Self::backtrack(nodes, evaluations, pruning_cuts, search_duration)
+        Self::backtrack(
+            nodes,
+            evaluations,
+            pruning_cuts,
+            max_visited_depth,
+            search_duration,
+        )
     }
 
     /// Implements the minimax recursion as an expansion of the search tree.
@@ -218,6 +228,7 @@ impl Solver {
         nodes: Vec<Node>,
         evaluations: usize,
         pruning_cuts: usize,
+        max_visited_depth: usize,
         search_duration: Duration,
     ) -> Outcome {
         // The outcome is positive only if the value of the start
@@ -256,6 +267,7 @@ impl Solver {
             timeline: stack,
             evaluations,
             cuts: pruning_cuts,
+            max_visited_depth,
             search_duration,
         }
     }
@@ -356,6 +368,8 @@ pub struct Outcome {
     pub cuts: usize,
     /// The search duration.
     pub search_duration: Duration,
+    /// The depth of the deepest node evaluated.
+    pub max_visited_depth: usize,
 }
 
 /// The type of outcome.
