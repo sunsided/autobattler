@@ -26,7 +26,9 @@ fn main() {
             health: 20.0,
             damage_taken: 0.0,
             weapon: Weapon::Fists(Fists { damage: 10.0 }),
+            can_act: true,
         }],
+        retreated: false,
     };
 
     let rng = RNG::try_from(&Language::Fantasy).unwrap();
@@ -40,14 +42,17 @@ fn main() {
                 health: 15.0,
                 damage_taken: 0.0,
                 weapon: Weapon::Stick(Stick { damage: 5.0 }),
+                can_act: true,
             },
             PartyMember {
                 id: 1,
                 health: 10.0,
                 damage_taken: 0.0,
                 weapon: Weapon::Fists(Fists { damage: 20.0 }),
+                can_act: true,
             },
         ],
+        retreated: false,
     };
 
     let rng = RNG::try_from(&Language::Demonic).unwrap();

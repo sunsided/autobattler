@@ -20,6 +20,8 @@ pub struct ActionIterator {
     current_index: usize,
     /// The index range to address in the current party.
     current_range: Range<usize>,
+    /// Determines whether the retreat action was already emitted.
+    tried_retreat: bool,
     /// The iterator used to generated actions targeting an enemy party member..
     iter: Option<ActionTargetIterator>,
 }
@@ -58,6 +60,7 @@ impl ActionIterator {
             current_index: current_range.start,
             current_range,
             iter: None,
+            tried_retreat: false,
         }
     }
 }
@@ -69,6 +72,20 @@ impl Iterator for ActionIterator {
         loop {
             // If the end of the enumeration was reached, we can exit.
             if self.current_index >= self.current_range.end {
+                if !self.tried_retreat {
+                    self.tried_retreat = true;
+                    // TODO: Ensure that not every party can retreat.
+
+                    // No point in running away if the opponent is already running
+                    // or defeated. Likewise, ensure we can perform an action at all.
+                    if self.current.can_act()
+                        && !self.opponent.has_retreated()
+                        && !self.opponent.is_defeated()
+                    {
+                        return Some(AppliedAction::Flee);
+                    }
+                }
+
                 return None;
             }
 

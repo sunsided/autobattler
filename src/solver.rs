@@ -154,6 +154,11 @@ impl Solver {
             (&node.state.opponent, &node.state.initiator)
         };
 
+        // If the party retreated from the encounter, this is a terminal state.
+        if current.has_retreated() {
+            return ExpansionResult::new_exhaustion(node);
+        }
+
         // If we visit this node for the first time, create the iterator.
         // On all subsequent visits we continue from the last-known state.
         if node.action_iter.is_none() {
@@ -166,7 +171,31 @@ impl Solver {
         if let Some(action) = node.action_iter.as_mut().map_or(None, |i| i.next()) {
             match action {
                 AppliedAction::Flee => {
-                    todo!("retreat not implemented")
+                    let mut current = current.clone();
+                    current.retreat();
+
+                    // Create a new branch on the board.
+                    let state = if node.is_maximizing {
+                        Conflict {
+                            initiator: current,
+                            opponent: opponent.clone(),
+                        }
+                    } else {
+                        Conflict {
+                            initiator: opponent.clone(),
+                            opponent: current,
+                        }
+                    };
+
+                    // If this is not the last member in the party we need to chain more
+                    // moves. This will create multiple maximize/minimize layers in the tree.
+                    let child_node = Node::new_branch_from(next_child_id, &node, action, state);
+
+                    if let Some(action) = &child_node.action {
+                        log_expand_node_with_action(&node, &child_node, &action);
+                    }
+
+                    return ExpansionResult::new_expansion(node, child_node);
                 }
                 AppliedAction::Targeted(action) => {
                     let source_id = action.source.member_id;
@@ -217,7 +246,7 @@ impl Solver {
                         // moves. This will create multiple maximize/minimize layers in the tree.
                         let child_node = Node::new_branch_from(next_child_id, &node, action, state);
 
-                        if let Some(action) = &node.action {
+                        if let Some(action) = &child_node.action {
                             log_expand_node_with_action(&node, &child_node, &action);
                         }
 
@@ -337,6 +366,14 @@ impl Solver {
                 .sum();
             debug_assert!(utility < 0.0);
             return TerminalState::Defeat(utility);
+        }
+
+        if state.opponent.has_retreated() {
+            return TerminalState::Win(0.0);
+        }
+
+        if state.initiator.has_retreated() {
+            return TerminalState::Defeat(0.0);
         }
 
         // As a naive choice, we simply sum up the health of each member.
@@ -622,6 +659,11 @@ fn log_node_terminal_state(node: &Node, value: &TerminalState, nodes: &[Node]) {
 #[inline]
 fn log_expand_node_with_action(node: &Node, child_node: &Node, action: &AppliedAction) {
     trace!("Expand node {node} into {child_node} with action: {action}");
+}
+
+#[inline]
+fn log_stop_expansion_of_node_with_action(node: &Node, action: &AppliedAction) {
+    trace!("Stopping expansion of node {node} due to action: {action}");
 }
 
 #[cfg(test)]

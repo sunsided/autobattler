@@ -4,6 +4,7 @@ use std::fmt::{Debug, Display, Formatter};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AppliedAction {
+    /// The party retreats from the conflict.
     Flee,
     /// A party member targets another party member.
     Targeted(TargetedAction),
