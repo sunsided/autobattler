@@ -48,55 +48,33 @@ impl Solver {
 
             // The clone here is a hack to get around borrowing rules.
             let mut node = nodes[id].clone();
-            trace!(
-                "Exploring node {node} at depth {depth}; {direction} within α={alpha} β={beta}, best={value} at={best_child:?}",
-                depth = node.depth,
-                direction = if node.is_maximizing { "maximizing"} else {"minimizing"},
-                alpha = node.value.alpha,
-                beta = node.value.beta,
-                value = node.value.value,
-                best_child = node.best_child
-            );
+            log_exploring_node(&node);
 
             // Terminate iteration if the look-ahead depth is reached.
+            // Note that we can only know if a state is terminal once we have
+            // fully expanded it. This information is available further below,
+            // after the node expansion step.
             if node.depth == max_depth {
                 *node.value = Self::get_utility(&node.state);
                 nodes[node.id].value = node.value.clone();
-                trace!(
-                    "Search depth reached, terminating search on node {node} with {value}",
-                    value = *node.value
-                );
+                log_max_search_reached(&node);
                 Self::propagate_to_parent(&mut nodes, &mut node);
                 continue 'dfs;
             }
 
             // Test for alpha or beta cutoffs.
             if node.is_maximizing && node.value.is_beta_cutoff() {
-                trace!(
-                    "Beta cutoff at value={value} >= β={beta} - stopping expansion",
-                    value = node.value.value,
-                    beta = node.value.beta
-                );
-
+                log_beta_cutoff(&node);
                 pruning_cuts += 1;
                 Self::propagate_to_parent(&mut nodes, &mut node);
                 continue 'dfs;
             } else if !node.is_maximizing && node.value.is_alpha_cutoff() {
-                trace!(
-                    "Alpha cutoff at value={value} <= α={alpha} - stopping expansion",
-                    value = node.value.value,
-                    alpha = node.value.alpha
-                );
-
+                log_alpha_cutoff(&node);
                 pruning_cuts += 1;
                 Self::propagate_to_parent(&mut nodes, &mut node);
                 continue 'dfs;
             } else if !node.is_maximizing && node.value.is_negative() {
-                trace!(
-                    "Minimizer found defeat with value={value} - stopping expansion",
-                    value = node.value.value
-                );
-
+                log_minimizer_detected_defeat(&node);
                 pruning_cuts += 1;
                 Self::propagate_to_parent(&mut nodes, &mut node);
                 continue 'dfs;
@@ -107,32 +85,12 @@ impl Solver {
                 ExpansionResult::Expanded(node) => node,
                 ExpansionResult::Exhausted(mut node) => {
                     let value = if (*node.value).is_finite() {
-                        trace!(
-                            "Node {node} (child of {parent_node}) fully explored, got value {value}",
-                            value = *node.value,
-                            parent_node = nodes[node.parent_id.unwrap_or(0)]
-                        );
+                        log_node_fully_explored(&node, &nodes);
                         *node.value
                     } else {
                         // If this is a terminal node we either have a winner or loser.
                         let value = Self::get_utility(&node.state);
-                        match value {
-                            TerminalState::Win(value) =>
-                                trace!(
-                                    "Node {node} (child of {parent_node}) is a terminal, got value {value} (win)",
-                                    parent_node = nodes[node.parent_id.unwrap_or(0)]
-                                ),
-                            TerminalState::Defeat(value) =>
-                                trace!(
-                                    "Node {node} (child of {parent_node}) is a terminal, got value {value} (defeat)",
-                                    parent_node = nodes[node.parent_id.unwrap_or(0)]
-                                ),
-                            TerminalState::Heuristic(value) =>
-                                trace!(
-                                    "Node {node} (child of {parent_node}) exhausted, got value {value} (heuristic)",
-                                    parent_node = nodes[node.parent_id.unwrap_or(0)]
-                                )
-                        }
+                        log_node_terminal_state(&node, &value, &nodes);
                         value
                     };
 
@@ -241,19 +199,19 @@ impl Solver {
 
                 // If this is not the last member in the party we need to chain more
                 // moves. This will create multiple maximize/minimize layers in the tree.
-                let child_node = Node::branch(
+                let child_node = Node::new_branch(
                     nodes.len(),
                     node.id,
                     &node.value,
                     !node.is_maximizing,
                     node.depth + 1,
                     node.turn + 1,
-                    state,
                     action,
+                    state,
                 );
 
                 if let Some(action) = &node.action {
-                    trace!("Expand node {node} into {child_node} with action: {action}");
+                    log_expand_node_with_action(&node, &child_node, &action);
                 }
 
                 // Since the actions were not exhausted yet, we push the parent node again.
@@ -287,6 +245,7 @@ impl Solver {
             TerminalState::Win(score) => OutcomeType::Win(score),
             TerminalState::Defeat(score) => OutcomeType::Lose(score),
             TerminalState::Heuristic(score) => OutcomeType::Unknown(score),
+            TerminalState::OpenUnexplored(score) => OutcomeType::Unknown(score),
         };
 
         let mut stack = Vec::default();
@@ -502,15 +461,27 @@ impl Node {
 
     /// Ends this party's turn and by changing from maximizing to minimizing
     /// and vice versa.
-    pub fn branch(
+    ///
+    /// ## Arguments
+    /// * `id` - The new ID for the node to be created.
+    /// * `parent_id` - The ID of the parent node to the newly created node.
+    /// * `parent_value` - The value of the parent node, used to propagate `alpha`
+    ///   and `beta` limits.
+    /// * `is_maximizing` - Whether the child node is a maximizer or minimizer.
+    /// * `depth` - The search depth, i.e. distance from the root node,
+    ///   typically one less than the parent node.
+    /// * `turn` - The new turn number for that node, typically one higher than the parent node.
+    /// * `action` - The action that lead to the expansion into the child node.
+    /// * `state` - The new state observed by the child node after applying the action.
+    pub fn new_branch(
         id: usize,
         parent_id: usize,
         parent_value: &Value,
         is_maximizing: bool,
         depth: usize,
         turn: usize,
-        state: Conflict,
         action: AppliedAction,
+        state: Conflict,
     ) -> Self {
         Self {
             id,
@@ -540,6 +511,88 @@ impl Display for Node {
             write!(f, "↓{}", self.id)
         }
     }
+}
+
+#[inline]
+fn log_exploring_node(node: &Node) {
+    trace!(
+        "Exploring node {node} at depth {depth}; {direction} within α={alpha} β={beta}, best={value} at={best_child:?}",
+        depth = node.depth,
+        direction = if node.is_maximizing { "maximizing"} else {"minimizing"},
+        alpha = node.value.alpha,
+        beta = node.value.beta,
+        value = node.value.value,
+        best_child = node.best_child
+    );
+}
+
+#[inline]
+fn log_max_search_reached(node: &Node) {
+    trace!(
+        "Search depth reached, terminating search on node {node} with {value}",
+        value = *node.value
+    );
+}
+
+#[inline]
+fn log_alpha_cutoff(node: &Node) {
+    trace!(
+        "Alpha cutoff at value={value} <= α={alpha} - stopping expansion",
+        value = node.value.value,
+        alpha = node.value.alpha
+    );
+}
+
+#[inline]
+fn log_beta_cutoff(node: &Node) {
+    trace!(
+        "Beta cutoff at value={value} >= β={beta} - stopping expansion",
+        value = node.value.value,
+        beta = node.value.beta
+    );
+}
+
+#[inline]
+fn log_minimizer_detected_defeat(node: &Node) {
+    trace!(
+        "Minimizer found defeat with value={value} - stopping expansion",
+        value = node.value.value
+    );
+}
+
+#[inline]
+fn log_node_fully_explored(node: &Node, nodes: &[Node]) {
+    trace!(
+        "Node {node} (child of {parent_node}) fully explored, got value {value}",
+        value = *node.value,
+        parent_node = nodes[node.parent_id.unwrap_or(0)]
+    );
+}
+
+#[inline]
+fn log_node_terminal_state(node: &Node, value: &TerminalState, nodes: &[Node]) {
+    match value {
+        TerminalState::Win(value) => trace!(
+            "Node {node} (child of {parent_node}) is a terminal, got value {value} (win)",
+            parent_node = nodes[node.parent_id.unwrap_or(0)]
+        ),
+        TerminalState::Defeat(value) => trace!(
+            "Node {node} (child of {parent_node}) is a terminal, got value {value} (defeat)",
+            parent_node = nodes[node.parent_id.unwrap_or(0)]
+        ),
+        TerminalState::Heuristic(value) => trace!(
+            "Node {node} (child of {parent_node}) exhausted, got value {value} (heuristic)",
+            parent_node = nodes[node.parent_id.unwrap_or(0)]
+        ),
+        TerminalState::OpenUnexplored(_) => {
+            unreachable!("An open/unexplored node must have a defined terminal value")
+        }
+    }
+}
+
+#[inline]
+fn log_expand_node_with_action(node: &Node, child_node: &Node, action: &AppliedAction) {
+    trace!("Expand node {node} into {child_node} with action: {action}");
 }
 
 #[cfg(test)]
