@@ -37,7 +37,7 @@ impl Solver {
         // initialized to negative infinity.
         let mut nodes = vec![Node::new_root(conflict.clone(), 0)];
 
-        // Some statistics.
+        // Track expansion statistics.
         let mut evaluations = 0;
         let mut pruning_cuts = 0;
         let start_time = Instant::now();
@@ -54,28 +54,28 @@ impl Solver {
             // Note that we can only know if a state is terminal once we have
             // fully expanded it. This information is available further below,
             // after the node expansion step.
-            if node.depth == max_depth {
+            let continue_expansion = if node.depth == max_depth {
                 *node.value = Self::get_utility(&node.state);
                 nodes[node.id].value = node.value.clone();
                 log_max_search_reached(&node);
-                Self::propagate_to_parent(&mut nodes, &mut node);
-                continue 'dfs;
-            }
-
-            // Test for alpha or beta cutoffs.
-            if node.is_maximizing && node.value.is_beta_cutoff() {
+                false
+            } else if node.is_maximizing && node.value.is_beta_cutoff() {
                 log_beta_cutoff(&node);
                 pruning_cuts += 1;
-                Self::propagate_to_parent(&mut nodes, &mut node);
-                continue 'dfs;
+                false
             } else if !node.is_maximizing && node.value.is_alpha_cutoff() {
                 log_alpha_cutoff(&node);
                 pruning_cuts += 1;
-                Self::propagate_to_parent(&mut nodes, &mut node);
-                continue 'dfs;
+                false
             } else if !node.is_maximizing && node.value.is_negative() {
                 log_minimizer_detected_defeat(&node);
                 pruning_cuts += 1;
+                false
+            } else {
+                true
+            };
+
+            if !continue_expansion {
                 Self::propagate_to_parent(&mut nodes, &mut node);
                 continue 'dfs;
             }
@@ -86,13 +86,12 @@ impl Solver {
                     // Register the child node as a new child.
                     parent.child_nodes.push(child.id);
 
-                    // Since the actions were not exhausted yet, we push the parent node again.
+                    // Since the actions were not exhausted yet, we push the parent first
+                    // so that we can continue from it later.
                     dfs_queue.push(parent.id);
-
-                    // Now push the child node so that we can explore it.
                     dfs_queue.push(child.id);
-                    nodes.push(child);
 
+                    nodes.push(child);
                     parent
                 }
                 ExpansionResult::Exhausted(Exhaustion { mut node }) => {
