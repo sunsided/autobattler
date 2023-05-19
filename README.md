@@ -104,5 +104,5 @@ As for actions,
 - [x] Regular minimax ([`src/solver.rs`](src/solver.rs)).
 - [x] Multiple turns per party ([`src/action_iterator.rs`](src/action_iterator.rs)).
 - [x] Implement Alpha-Beta pruning ([`src/value.rs`](src/value.rs)).
-- [ ] Implement Iterative Deepening.
+- [x] Implement Iterative Deepening.
 - [ ] Implement A*-like heuristics.

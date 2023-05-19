@@ -13,7 +13,7 @@ pub fn get_utility(state: &Conflict) -> TerminalState {
             .iter()
             .map(|m| -m.damage_taken)
             .sum();
-        debug_assert!(utility < 0.0);
+        debug_assert!(utility <= 0.0);
         return if state.initiator.is_defeated() {
             TerminalState::Defeat(utility)
         } else {
