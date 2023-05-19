@@ -4,9 +4,9 @@ use crate::party_member::PartyMember;
 /// A conflict, specifically the state of conflict at a given turn.
 #[derive(Debug, Clone)]
 pub struct Conflict {
-    /// The party initiating the conflict.
+    /// The party initiating the conflict, the maximizing player.
     pub initiator: Party,
-    /// The other involved party.
+    /// The other involved party, the minimizing player.
     pub opponent: Party,
 }
 

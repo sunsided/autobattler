@@ -12,6 +12,10 @@ pub struct PartyMember {
     pub damage_taken: f32,
     /// The weapon of choice.
     pub weapon: Weapon,
+    /// Whether the party member can currently act.
+    /// A member may not be able to act e.g. if they are paralyzed
+    /// or fled from the encounter.
+    pub can_act: bool,
 }
 
 impl PartyMember {
@@ -61,9 +65,9 @@ impl PartyMember {
         AttackIterator::new(self)
     }
 
-    /// Determines whether the current member can act..
+    /// Determines whether the current member can act.
     pub fn can_act(&self) -> bool {
-        !self.is_dead()
+        self.can_act && !self.is_dead()
     }
 
     /// Determines whether the action is applicable to this member.
@@ -129,6 +133,7 @@ mod tests {
             health: 100.0,
             damage_taken: 0.0,
             weapon: Weapon::Stick(Stick { damage: 0.0 }),
+            can_act: true,
         };
 
         // Apply more damage than the subject has health.
@@ -153,6 +158,7 @@ mod tests {
             health: 100.0,
             damage_taken: 0.0,
             weapon: Weapon::Stick(Stick { damage: 0.0 }),
+            can_act: true,
         };
 
         let mut iter = member.clone().actions();

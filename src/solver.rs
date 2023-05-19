@@ -1,4 +1,4 @@
-use crate::action::AppliedAction;
+use crate::action::{AppliedAction, TargetedAction};
 use crate::action_iterator::ActionIterator;
 use crate::conflict::Conflict;
 use crate::party::Participant;
@@ -154,6 +154,11 @@ impl Solver {
             (&node.state.opponent, &node.state.initiator)
         };
 
+        // If the party retreated from the encounter, this is a terminal state.
+        if current.has_retreated() {
+            return ExpansionResult::new_exhaustion(node);
+        }
+
         // If we visit this node for the first time, create the iterator.
         // On all subsequent visits we continue from the last-known state.
         if node.action_iter.is_none() {
@@ -164,59 +169,90 @@ impl Solver {
         let source_party_id = current.id;
 
         if let Some(action) = node.action_iter.as_mut().map_or(None, |i| i.next()) {
-            let source_id = action.source.member_id;
-            debug_assert_eq!(action.source.party_id, source_party_id);
+            match action {
+                AppliedAction::Flee => {
+                    let mut current = current.clone();
+                    current.retreat();
 
-            let target_party_id = action.target.party_id;
-            debug_assert_eq!(action.target.party_id, opponent.id);
+                    // Create a new branch on the board.
+                    let state = if node.is_maximizing {
+                        Conflict {
+                            initiator: current,
+                            opponent: opponent.clone(),
+                        }
+                    } else {
+                        Conflict {
+                            initiator: opponent.clone(),
+                            opponent: current,
+                        }
+                    };
 
-            let target_id = action.target.member_id;
-            let target = &opponent.members[action.target.member_id];
+                    // If this is not the last member in the party we need to chain more
+                    // moves. This will create multiple maximize/minimize layers in the tree.
+                    let child_node = Node::new_branch_from(next_child_id, &node, action, state);
 
-            let action = &action.action;
-
-            // TODO: Optimize state creation - only clone when action was applied.
-            let mut target = target.clone();
-            if target.handle_action(action) {
-                // Branch off and replace the member with the updated state.
-                let mut opponent = opponent.clone();
-                opponent.replace_member(target);
-
-                // Create a new branch on the board.
-                let state = if node.is_maximizing {
-                    Conflict {
-                        initiator: current.clone(),
-                        opponent,
+                    if let Some(action) = &child_node.action {
+                        log_expand_node_with_action(&node, &child_node, &action);
                     }
-                } else {
-                    Conflict {
-                        initiator: opponent,
-                        opponent: current.clone(),
-                    }
-                };
 
-                // The action to apply.
-                let action = AppliedAction {
-                    action: action.clone(),
-                    source: Participant {
-                        party_id: source_party_id,
-                        member_id: source_id,
-                    },
-                    target: Participant {
-                        party_id: target_party_id,
-                        member_id: target_id,
-                    },
-                };
-
-                // If this is not the last member in the party we need to chain more
-                // moves. This will create multiple maximize/minimize layers in the tree.
-                let child_node = Node::new_branch_from(next_child_id, &node, action, state);
-
-                if let Some(action) = &node.action {
-                    log_expand_node_with_action(&node, &child_node, &action);
+                    return ExpansionResult::new_expansion(node, child_node);
                 }
+                AppliedAction::Targeted(action) => {
+                    let source_id = action.source.member_id;
+                    debug_assert_eq!(action.source.party_id, source_party_id);
 
-                return ExpansionResult::new_expansion(node, child_node);
+                    let target_party_id = action.target.party_id;
+                    debug_assert_eq!(action.target.party_id, opponent.id);
+
+                    let target_id = action.target.member_id;
+                    let target = &opponent.members[action.target.member_id];
+
+                    let action = &action.action;
+
+                    // TODO: Optimize state creation - only clone when action was applied.
+                    let mut target = target.clone();
+                    if target.handle_action(action) {
+                        // Branch off and replace the member with the updated state.
+                        let mut opponent = opponent.clone();
+                        opponent.replace_member(target);
+
+                        // Create a new branch on the board.
+                        let state = if node.is_maximizing {
+                            Conflict {
+                                initiator: current.clone(),
+                                opponent,
+                            }
+                        } else {
+                            Conflict {
+                                initiator: opponent,
+                                opponent: current.clone(),
+                            }
+                        };
+
+                        // The action to apply.
+                        let action = AppliedAction::Targeted(TargetedAction {
+                            action: action.clone(),
+                            source: Participant {
+                                party_id: source_party_id,
+                                member_id: source_id,
+                            },
+                            target: Participant {
+                                party_id: target_party_id,
+                                member_id: target_id,
+                            },
+                        });
+
+                        // If this is not the last member in the party we need to chain more
+                        // moves. This will create multiple maximize/minimize layers in the tree.
+                        let child_node = Node::new_branch_from(next_child_id, &node, action, state);
+
+                        if let Some(action) = &child_node.action {
+                            log_expand_node_with_action(&node, &child_node, &action);
+                        }
+
+                        return ExpansionResult::new_expansion(node, child_node);
+                    }
+                }
             }
         }
 
@@ -238,6 +274,8 @@ impl Solver {
         let outcome = match value {
             TerminalState::Win(score) => OutcomeType::Win(score),
             TerminalState::Defeat(score) => OutcomeType::Lose(score),
+            TerminalState::Remain(score) => OutcomeType::Remain(score),
+            TerminalState::Retreat(score) => OutcomeType::Retreat(score),
             TerminalState::Heuristic(score) => OutcomeType::Unknown(score),
             TerminalState::OpenUnexplored(score) => OutcomeType::Unknown(score),
         };
@@ -318,7 +356,7 @@ impl Solver {
     /// Gets the utility of the current node. Will return `None` if this
     /// is not a terminal state, i.e. no party has won or lost.
     fn get_utility(state: &Conflict) -> TerminalState {
-        if state.initiator.is_defeated() {
+        if state.initiator.is_defeated() || state.initiator.has_retreated() {
             // The current party being dead is a terminal state and always is a negative reward.
             // We sum up the total damage taken to punish strong defeats
             // harder than slight defeats.
@@ -329,7 +367,11 @@ impl Solver {
                 .map(|m| -m.damage_taken)
                 .sum();
             debug_assert!(utility < 0.0);
-            return TerminalState::Defeat(utility);
+            return if state.initiator.is_defeated() {
+                TerminalState::Defeat(utility)
+            } else {
+                TerminalState::Retreat(utility * 0.1)
+            };
         }
 
         // As a naive choice, we simply sum up the health of each member.
@@ -350,6 +392,11 @@ impl Solver {
 
         if state.opponent.is_defeated() {
             TerminalState::Win(utility)
+        } else if state.opponent.has_retreated() {
+            // This is a somewhat delicate balancing. If the utility
+            // value for a remain is equal to a win, the opposing party
+            // changes their preferences.
+            TerminalState::Remain(utility * 0.1)
         } else {
             TerminalState::Heuristic(utility * 0.1)
         }
@@ -372,6 +419,12 @@ pub struct Outcome {
     pub max_visited_depth: usize,
 }
 
+impl Outcome {
+    pub fn len(&self) -> usize {
+        self.timeline.len()
+    }
+}
+
 /// The type of outcome.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub enum OutcomeType {
@@ -379,6 +432,10 @@ pub enum OutcomeType {
     Win(f32),
     /// The initiating party loses.
     Lose(f32),
+    /// The initiating party remained after the opponent retreated.
+    Remain(f32),
+    /// The initiating party retreated.
+    Retreat(f32),
     /// Unknown outcome.
     Unknown(f32),
 }
@@ -602,6 +659,14 @@ fn log_node_terminal_state(node: &Node, value: &TerminalState, nodes: &[Node]) {
             "Node {node} (child of {parent_node}) is a terminal, got value {value} (defeat)",
             parent_node = nodes[node.parent_id.unwrap_or(0)]
         ),
+        TerminalState::Remain(value) => trace!(
+            "Node {node} (child of {parent_node}) is a terminal, got value {value} (opponent retreated)",
+            parent_node = nodes[node.parent_id.unwrap_or(0)]
+        ),
+        TerminalState::Retreat(value) => trace!(
+            "Node {node} (child of {parent_node}) is a terminal, got value {value} (retreat)",
+            parent_node = nodes[node.parent_id.unwrap_or(0)]
+        ),
         TerminalState::Heuristic(value) => trace!(
             "Node {node} (child of {parent_node}) exhausted, got value {value} (heuristic)",
             parent_node = nodes[node.parent_id.unwrap_or(0)]
@@ -626,25 +691,8 @@ mod tests {
 
     #[test]
     fn simple_fight_works() {
-        let heroes = Party {
-            id: 0,
-            members: vec![PartyMember {
-                id: 0,
-                health: 25.0,
-                damage_taken: 0.0,
-                weapon: Weapon::Stick(Stick { damage: 10.0 }),
-            }],
-        };
-
-        let villains = Party {
-            id: 1,
-            members: vec![PartyMember {
-                id: 0,
-                health: 25.0,
-                damage_taken: 0.0,
-                weapon: Weapon::Stick(Stick { damage: 10.0 }),
-            }],
-        };
+        let heroes = build_default_hero_party(false, 25.0);
+        let villains = build_simple_villain_party();
 
         let conflict = Conflict {
             initiator: heroes,
@@ -657,16 +705,95 @@ mod tests {
 
     #[test]
     fn complex_fight_works() {
+        let heroes = build_default_hero_party(true, 20.0); // 👈 an opponent exists that does equal damage
+        let villains = build_complex_villain_party(false, 10.0);
+
+        let conflict = Conflict {
+            initiator: heroes,
+            opponent: villains,
+        };
+
+        // In this version, the enemy is not allowed to flee, so the
+        // game takes five turns (three strikes for the heros).
+        let solution = Solver::engage(&conflict, 100);
+        assert_eq!(solution.outcome, OutcomeType::Win(10.0));
+        assert_eq!(solution.len(), 5);
+    }
+
+    #[test]
+    fn complex_fight_opponent_flees() {
+        let heroes = build_default_hero_party(true, 20.0); // 👈 an opponent exists that does equal damage
+        let villains = build_complex_villain_party(true, 10.0); // 👈 equal health to the hero damage
+
+        let conflict = Conflict {
+            initiator: heroes,
+            opponent: villains,
+        };
+
+        // The enemy slightly prefers dealing damage over retaining health,
+        // resulting in a three-turn game, where the only way of surviving
+        // is to flee after the first initiator move. Since the remaining
+        // party always has one extra move, the hero gets either two strikes
+        // or three, but three strikes are enough to defeat the enemy.
+        let solution = Solver::engage(&conflict, 100);
+        assert_eq!(solution.outcome, OutcomeType::Remain(2.0));
+        assert_eq!(solution.len(), 3);
+    }
+
+    #[test]
+    fn complex_fight_initiator_flees() {
+        let heroes = build_default_hero_party(true, 20.0); // 👈 an opponent exists that does equal damage
+        let villains = build_complex_villain_party(true, 15.0); // 👈 more health than hero does damage
+
+        let conflict = Conflict {
+            initiator: heroes,
+            opponent: villains,
+        };
+
+        let solution = Solver::engage(&conflict, 100);
+
+        // Since the hero will be one-hit by the second enemy, the only
+        // meaningful action is to flee in turn one.
+        // Due to the mechanics, the enemy will get an extra turn, resulting
+        // in a two-turn outcome.
+        assert_eq!(solution.outcome, OutcomeType::Retreat(-0.5));
+        assert_eq!(solution.len(), 2);
+    }
+
+    #[test]
+    fn complex_fight_initiator_defeated() {
+        let heroes = build_default_hero_party(false, 20.0); // 👈 an opponent exists that does equal damage
+        let villains = build_complex_villain_party(true, 15.0); // 👈 more health than hero does damage
+
+        let conflict = Conflict {
+            initiator: heroes,
+            opponent: villains,
+        };
+
+        let solution = Solver::engage(&conflict, 100);
+
+        // In this setup the hero is not allowed to flee, leading to a defeat.
+        assert_eq!(solution.outcome, OutcomeType::Lose(-20.0));
+        assert_eq!(solution.len(), 8);
+    }
+
+    fn build_default_hero_party(can_retreat: bool, health: f32) -> Party {
         let heroes = Party {
             id: 0,
             members: vec![PartyMember {
                 id: 0,
-                health: 20.0,
+                health,
                 damage_taken: 0.0,
                 weapon: Weapon::Fists(Fists { damage: 10.0 }),
+                can_act: true,
             }],
+            can_retreat,
+            retreated: false,
         };
+        heroes
+    }
 
+    fn build_complex_villain_party(can_retreat: bool, dangerous_health: f32) -> Party {
         let villains = Party {
             id: 1,
             members: vec![
@@ -675,23 +802,38 @@ mod tests {
                     health: 15.0,
                     damage_taken: 0.0,
                     weapon: Weapon::Stick(Stick { damage: 5.0 }),
+                    can_act: true,
                 },
                 PartyMember {
                     id: 1,
-                    health: 10.0,
+                    health: dangerous_health,
                     damage_taken: 0.0,
-                    weapon: Weapon::Fists(Fists { damage: 20.0 }),
+                    weapon: Weapon::Fists(Fists {
+                        damage: 20.0, // 👈 may defeat hero in one hit
+                    }),
+                    can_act: true,
                 },
             ],
+            can_retreat,
+            retreated: false,
         };
+        villains
+    }
 
-        let conflict = Conflict {
-            initiator: heroes,
-            opponent: villains,
+    fn build_simple_villain_party() -> Party {
+        let villains = Party {
+            id: 1,
+            members: vec![PartyMember {
+                id: 0,
+                health: 25.0,
+                damage_taken: 0.0,
+                weapon: Weapon::Stick(Stick { damage: 10.0 }),
+                can_act: true,
+            }],
+            can_retreat: false,
+            retreated: false,
         };
-
-        let solution = Solver::engage(&conflict, 100);
-        assert_eq!(solution.outcome, OutcomeType::Win(10.0));
+        villains
     }
 
     #[test]

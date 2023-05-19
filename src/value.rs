@@ -19,6 +19,10 @@ pub enum TerminalState {
     Win(f32),
     /// The maximizing player loses.
     Defeat(f32),
+    /// The player remained after the other player retreated.
+    Remain(f32),
+    /// The player retreated.
+    Retreat(f32),
     /// No clear decision can be made.
     Heuristic(f32),
     /// The branch is unexplored and has a default value.
@@ -126,6 +130,8 @@ impl TerminalState {
         match self {
             TerminalState::Win(value) => *value,
             TerminalState::Defeat(value) => *value,
+            TerminalState::Remain(value) => *value,
+            TerminalState::Retreat(value) => *value,
             TerminalState::Heuristic(value) => *value,
             TerminalState::OpenUnexplored(value) => *value,
         }
@@ -143,6 +149,8 @@ impl Deref for TerminalState {
         match self {
             TerminalState::Win(value) => value,
             TerminalState::Defeat(value) => value,
+            TerminalState::Remain(value) => value,
+            TerminalState::Retreat(value) => value,
             TerminalState::Heuristic(value) => value,
             TerminalState::OpenUnexplored(value) => value,
         }
@@ -154,6 +162,8 @@ impl Display for TerminalState {
         match self {
             TerminalState::Win(value) => write!(f, "win({})", value),
             TerminalState::Defeat(value) => write!(f, "defeat({})", value),
+            TerminalState::Remain(value) => write!(f, "remain({})", value),
+            TerminalState::Retreat(value) => write!(f, "retreat({})", value),
             TerminalState::Heuristic(value) => write!(f, "H({})", value),
             TerminalState::OpenUnexplored(value) => write!(f, "O({})", value),
         }

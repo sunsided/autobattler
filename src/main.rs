@@ -1,4 +1,4 @@
-use crate::action::Action;
+use crate::action::{Action, AppliedAction};
 use crate::conflict::Conflict;
 use crate::party::{Participant, Party};
 use crate::party_member::PartyMember;
@@ -26,7 +26,10 @@ fn main() {
             health: 20.0,
             damage_taken: 0.0,
             weapon: Weapon::Fists(Fists { damage: 10.0 }),
+            can_act: true,
         }],
+        can_retreat: true,
+        retreated: false,
     };
 
     let rng = RNG::try_from(&Language::Fantasy).unwrap();
@@ -40,14 +43,18 @@ fn main() {
                 health: 15.0,
                 damage_taken: 0.0,
                 weapon: Weapon::Stick(Stick { damage: 5.0 }),
+                can_act: true,
             },
             PartyMember {
                 id: 1,
                 health: 10.0,
                 damage_taken: 0.0,
                 weapon: Weapon::Fists(Fists { damage: 20.0 }),
+                can_act: true,
             },
         ],
+        can_retreat: true,
+        retreated: false,
     };
 
     let rng = RNG::try_from(&Language::Demonic).unwrap();
@@ -63,8 +70,12 @@ fn main() {
     let outcome = Solver::engage(&conflict, 10);
 
     println!(
-        "Performed {} evaluations with {} cuts at depth {} in {:?}",
-        outcome.evaluations, outcome.cuts, outcome.max_visited_depth, outcome.search_duration
+        "Performed {} evaluations with {} cuts at depth {} in {:?}. The encounter has {} turns.",
+        outcome.evaluations,
+        outcome.cuts,
+        outcome.max_visited_depth,
+        outcome.search_duration,
+        outcome.len()
     );
     match outcome.outcome {
         OutcomeType::Win(score) => println!(
@@ -77,6 +88,18 @@ fn main() {
             "{} {} with a score of {}.",
             "TL;DR:".bright_white(),
             "The initiating party is defeated".red(),
+            score
+        ),
+        OutcomeType::Remain(score) => println!(
+            "{} {} with a score of {}.",
+            "TL;DR:".bright_white(),
+            "The initiating party let the opponent flee".red(),
+            score
+        ),
+        OutcomeType::Retreat(score) => println!(
+            "{} {} with a score of {}.",
+            "TL;DR:".bright_white(),
+            "The initiating party retreated".red(),
             score
         ),
         OutcomeType::Unknown(score) => println!(
@@ -117,31 +140,36 @@ fn main() {
             event.depth
         );
 
-        match event.action.action {
-            Action::SimpleAttack(attack) => {
-                println!(
-                    "  {} whacks {} with {}, dealing {} damage",
-                    color_participant(initiator_party, &names, &event.action.source),
-                    color_participant(initiator_party, &names, &event.action.target),
-                    format!("{:?}", attack).yellow(),
-                    attack.damage
-                );
-            }
-        }
+        match event.action {
+            AppliedAction::Flee => println!("  the party flees"),
+            AppliedAction::Targeted(action) => {
+                match action.action {
+                    Action::SimpleAttack(attack) => {
+                        println!(
+                            "  {} whacks {} with {}, dealing {} damage",
+                            color_participant(initiator_party, &names, &action.source),
+                            color_participant(initiator_party, &names, &action.target),
+                            format!("{:?}", attack).yellow(),
+                            attack.damage
+                        );
+                    }
+                };
 
-        let target = event.state.targeted_member(&event.action.target);
-        if target.is_dead() {
-            println!(
-                "   ⇒ {} has {}",
-                color_participant(initiator_party, &names, &event.action.target,),
-                "given up on being alive".red()
-            );
-        } else {
-            println!(
-                "   ⇒ {} now has {} health",
-                color_participant(initiator_party, &names, &event.action.target,),
-                target.health
-            );
+                let target = event.state.targeted_member(&action.target);
+                if target.is_dead() {
+                    println!(
+                        "   ⇒ {} has {}",
+                        color_participant(initiator_party, &names, &action.target,),
+                        "given up on being alive".red()
+                    );
+                } else {
+                    println!(
+                        "   ⇒ {} now has {} health",
+                        color_participant(initiator_party, &names, &action.target,),
+                        target.health
+                    );
+                }
+            }
         }
     }
 }
