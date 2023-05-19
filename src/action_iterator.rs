@@ -1,4 +1,4 @@
-use crate::action::{Action, AppliedAction};
+use crate::action::{Action, AppliedAction, TargetedAction};
 use crate::party::{Participant, Party};
 use crate::party_member::{AttackIterator, PartyMember};
 use std::ops::Range;
@@ -108,11 +108,11 @@ impl Iterator for ActionIterator {
                         member_id: opponent.id,
                     };
 
-                    return Some(AppliedAction {
+                    return Some(AppliedAction::Targeted(TargetedAction {
                         action,
                         source,
                         target,
-                    });
+                    }));
                 }
             }
         }

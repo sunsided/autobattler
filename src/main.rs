@@ -1,4 +1,4 @@
-use crate::action::Action;
+use crate::action::{Action, AppliedAction};
 use crate::conflict::Conflict;
 use crate::party::{Participant, Party};
 use crate::party_member::PartyMember;
@@ -117,31 +117,36 @@ fn main() {
             event.depth
         );
 
-        match event.action.action {
-            Action::SimpleAttack(attack) => {
-                println!(
-                    "  {} whacks {} with {}, dealing {} damage",
-                    color_participant(initiator_party, &names, &event.action.source),
-                    color_participant(initiator_party, &names, &event.action.target),
-                    format!("{:?}", attack).yellow(),
-                    attack.damage
-                );
-            }
-        }
+        match event.action {
+            AppliedAction::Flee => println!("  the party flees"),
+            AppliedAction::Targeted(action) => {
+                match action.action {
+                    Action::SimpleAttack(attack) => {
+                        println!(
+                            "  {} whacks {} with {}, dealing {} damage",
+                            color_participant(initiator_party, &names, &action.source),
+                            color_participant(initiator_party, &names, &action.target),
+                            format!("{:?}", attack).yellow(),
+                            attack.damage
+                        );
+                    }
+                };
 
-        let target = event.state.targeted_member(&event.action.target);
-        if target.is_dead() {
-            println!(
-                "   ⇒ {} has {}",
-                color_participant(initiator_party, &names, &event.action.target,),
-                "given up on being alive".red()
-            );
-        } else {
-            println!(
-                "   ⇒ {} now has {} health",
-                color_participant(initiator_party, &names, &event.action.target,),
-                target.health
-            );
+                let target = event.state.targeted_member(&action.target);
+                if target.is_dead() {
+                    println!(
+                        "   ⇒ {} has {}",
+                        color_participant(initiator_party, &names, &action.target,),
+                        "given up on being alive".red()
+                    );
+                } else {
+                    println!(
+                        "   ⇒ {} now has {} health",
+                        color_participant(initiator_party, &names, &action.target,),
+                        target.health
+                    );
+                }
+            }
         }
     }
 }

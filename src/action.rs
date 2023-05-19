@@ -2,9 +2,16 @@ use crate::party::Participant;
 use crate::weapon::Weapon;
 use std::fmt::{Debug, Display, Formatter};
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum AppliedAction {
+    Flee,
+    /// A party member targets another party member.
+    Targeted(TargetedAction),
+}
+
 /// An applied action.
 #[derive(Debug, Clone, PartialEq)]
-pub struct AppliedAction {
+pub struct TargetedAction {
     /// The action.
     pub action: Action,
     /// The source of the action.
@@ -48,10 +55,13 @@ impl Debug for SimpleAttackAction {
 
 impl Display for AppliedAction {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self.action {
-            Action::SimpleAttack(_) => {
-                write!(f, "{} attacks {}", self.source, self.target)
-            }
+        match self {
+            AppliedAction::Flee => write!(f, "the party retreats"),
+            AppliedAction::Targeted(action) => match action.action {
+                Action::SimpleAttack(_) => {
+                    write!(f, "{} attacks {}", action.source, action.target)
+                }
+            },
         }
     }
 }

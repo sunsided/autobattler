@@ -1,4 +1,4 @@
-use crate::action::AppliedAction;
+use crate::action::{AppliedAction, TargetedAction};
 use crate::action_iterator::ActionIterator;
 use crate::conflict::Conflict;
 use crate::party::Participant;
@@ -164,59 +164,66 @@ impl Solver {
         let source_party_id = current.id;
 
         if let Some(action) = node.action_iter.as_mut().map_or(None, |i| i.next()) {
-            let source_id = action.source.member_id;
-            debug_assert_eq!(action.source.party_id, source_party_id);
-
-            let target_party_id = action.target.party_id;
-            debug_assert_eq!(action.target.party_id, opponent.id);
-
-            let target_id = action.target.member_id;
-            let target = &opponent.members[action.target.member_id];
-
-            let action = &action.action;
-
-            // TODO: Optimize state creation - only clone when action was applied.
-            let mut target = target.clone();
-            if target.handle_action(action) {
-                // Branch off and replace the member with the updated state.
-                let mut opponent = opponent.clone();
-                opponent.replace_member(target);
-
-                // Create a new branch on the board.
-                let state = if node.is_maximizing {
-                    Conflict {
-                        initiator: current.clone(),
-                        opponent,
-                    }
-                } else {
-                    Conflict {
-                        initiator: opponent,
-                        opponent: current.clone(),
-                    }
-                };
-
-                // The action to apply.
-                let action = AppliedAction {
-                    action: action.clone(),
-                    source: Participant {
-                        party_id: source_party_id,
-                        member_id: source_id,
-                    },
-                    target: Participant {
-                        party_id: target_party_id,
-                        member_id: target_id,
-                    },
-                };
-
-                // If this is not the last member in the party we need to chain more
-                // moves. This will create multiple maximize/minimize layers in the tree.
-                let child_node = Node::new_branch_from(next_child_id, &node, action, state);
-
-                if let Some(action) = &node.action {
-                    log_expand_node_with_action(&node, &child_node, &action);
+            match action {
+                AppliedAction::Flee => {
+                    todo!("retreat not implemented")
                 }
+                AppliedAction::Targeted(action) => {
+                    let source_id = action.source.member_id;
+                    debug_assert_eq!(action.source.party_id, source_party_id);
 
-                return ExpansionResult::new_expansion(node, child_node);
+                    let target_party_id = action.target.party_id;
+                    debug_assert_eq!(action.target.party_id, opponent.id);
+
+                    let target_id = action.target.member_id;
+                    let target = &opponent.members[action.target.member_id];
+
+                    let action = &action.action;
+
+                    // TODO: Optimize state creation - only clone when action was applied.
+                    let mut target = target.clone();
+                    if target.handle_action(action) {
+                        // Branch off and replace the member with the updated state.
+                        let mut opponent = opponent.clone();
+                        opponent.replace_member(target);
+
+                        // Create a new branch on the board.
+                        let state = if node.is_maximizing {
+                            Conflict {
+                                initiator: current.clone(),
+                                opponent,
+                            }
+                        } else {
+                            Conflict {
+                                initiator: opponent,
+                                opponent: current.clone(),
+                            }
+                        };
+
+                        // The action to apply.
+                        let action = AppliedAction::Targeted(TargetedAction {
+                            action: action.clone(),
+                            source: Participant {
+                                party_id: source_party_id,
+                                member_id: source_id,
+                            },
+                            target: Participant {
+                                party_id: target_party_id,
+                                member_id: target_id,
+                            },
+                        });
+
+                        // If this is not the last member in the party we need to chain more
+                        // moves. This will create multiple maximize/minimize layers in the tree.
+                        let child_node = Node::new_branch_from(next_child_id, &node, action, state);
+
+                        if let Some(action) = &node.action {
+                            log_expand_node_with_action(&node, &child_node, &action);
+                        }
+
+                        return ExpansionResult::new_expansion(node, child_node);
+                    }
+                }
             }
         }
 
