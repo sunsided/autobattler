@@ -81,7 +81,10 @@ impl Solver {
             }
 
             // Expand the search tree at the current node.
-            let node = match Self::minimax_expand(node, nodes.len()) {
+            let expansion_result = Self::minimax_expand(node, nodes.len());
+
+            // Handle expansion or exhaustion of the node.
+            let node = match expansion_result {
                 ExpansionResult::Expanded(Expansion { mut parent, child }) => {
                     // Register the child node as a new child.
                     parent.child_nodes.push(child.id);
