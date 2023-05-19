@@ -419,6 +419,12 @@ pub struct Outcome {
     pub max_visited_depth: usize,
 }
 
+impl Outcome {
+    pub fn len(&self) -> usize {
+        self.timeline.len()
+    }
+}
+
 /// The type of outcome.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub enum OutcomeType {
@@ -685,31 +691,8 @@ mod tests {
 
     #[test]
     fn simple_fight_works() {
-        let heroes = Party {
-            id: 0,
-            members: vec![PartyMember {
-                id: 0,
-                health: 25.0,
-                damage_taken: 0.0,
-                weapon: Weapon::Stick(Stick { damage: 10.0 }),
-                can_act: true,
-            }],
-            can_retreat: false,
-            retreated: false,
-        };
-
-        let villains = Party {
-            id: 1,
-            members: vec![PartyMember {
-                id: 0,
-                health: 25.0,
-                damage_taken: 0.0,
-                weapon: Weapon::Stick(Stick { damage: 10.0 }),
-                can_act: true,
-            }],
-            can_retreat: false,
-            retreated: false,
-        };
+        let heroes = build_default_hero_party(false, 25.0);
+        let villains = build_simple_villain_party();
 
         let conflict = Conflict {
             initiator: heroes,
@@ -722,19 +705,95 @@ mod tests {
 
     #[test]
     fn complex_fight_works() {
+        let heroes = build_default_hero_party(true, 20.0); // 👈 an opponent exists that does equal damage
+        let villains = build_complex_villain_party(false, 10.0);
+
+        let conflict = Conflict {
+            initiator: heroes,
+            opponent: villains,
+        };
+
+        // In this version, the enemy is not allowed to flee, so the
+        // game takes five turns (three strikes for the heros).
+        let solution = Solver::engage(&conflict, 100);
+        assert_eq!(solution.outcome, OutcomeType::Win(10.0));
+        assert_eq!(solution.len(), 5);
+    }
+
+    #[test]
+    fn complex_fight_opponent_flees() {
+        let heroes = build_default_hero_party(true, 20.0); // 👈 an opponent exists that does equal damage
+        let villains = build_complex_villain_party(true, 10.0); // 👈 equal health to the hero damage
+
+        let conflict = Conflict {
+            initiator: heroes,
+            opponent: villains,
+        };
+
+        // The enemy slightly prefers dealing damage over retaining health,
+        // resulting in a three-turn game, where the only way of surviving
+        // is to flee after the first initiator move. Since the remaining
+        // party always has one extra move, the hero gets either two strikes
+        // or three, but three strikes are enough to defeat the enemy.
+        let solution = Solver::engage(&conflict, 100);
+        assert_eq!(solution.outcome, OutcomeType::Remain(2.0));
+        assert_eq!(solution.len(), 3);
+    }
+
+    #[test]
+    fn complex_fight_initiator_flees() {
+        let heroes = build_default_hero_party(true, 20.0); // 👈 an opponent exists that does equal damage
+        let villains = build_complex_villain_party(true, 15.0); // 👈 more health than hero does damage
+
+        let conflict = Conflict {
+            initiator: heroes,
+            opponent: villains,
+        };
+
+        let solution = Solver::engage(&conflict, 100);
+
+        // Since the hero will be one-hit by the second enemy, the only
+        // meaningful action is to flee in turn one.
+        // Due to the mechanics, the enemy will get an extra turn, resulting
+        // in a two-turn outcome.
+        assert_eq!(solution.outcome, OutcomeType::Retreat(-0.5));
+        assert_eq!(solution.len(), 2);
+    }
+
+    #[test]
+    fn complex_fight_initiator_defeated() {
+        let heroes = build_default_hero_party(false, 20.0); // 👈 an opponent exists that does equal damage
+        let villains = build_complex_villain_party(true, 15.0); // 👈 more health than hero does damage
+
+        let conflict = Conflict {
+            initiator: heroes,
+            opponent: villains,
+        };
+
+        let solution = Solver::engage(&conflict, 100);
+
+        // In this setup the hero is not allowed to flee, leading to a defeat.
+        assert_eq!(solution.outcome, OutcomeType::Lose(-20.0));
+        assert_eq!(solution.len(), 8);
+    }
+
+    fn build_default_hero_party(can_retreat: bool, health: f32) -> Party {
         let heroes = Party {
             id: 0,
             members: vec![PartyMember {
                 id: 0,
-                health: 20.0,
+                health,
                 damage_taken: 0.0,
                 weapon: Weapon::Fists(Fists { damage: 10.0 }),
                 can_act: true,
             }],
-            can_retreat: false,
+            can_retreat,
             retreated: false,
         };
+        heroes
+    }
 
+    fn build_complex_villain_party(can_retreat: bool, dangerous_health: f32) -> Party {
         let villains = Party {
             id: 1,
             members: vec![
@@ -747,23 +806,34 @@ mod tests {
                 },
                 PartyMember {
                     id: 1,
-                    health: 10.0,
+                    health: dangerous_health,
                     damage_taken: 0.0,
-                    weapon: Weapon::Fists(Fists { damage: 20.0 }),
+                    weapon: Weapon::Fists(Fists {
+                        damage: 20.0, // 👈 may defeat hero in one hit
+                    }),
                     can_act: true,
                 },
             ],
+            can_retreat,
+            retreated: false,
+        };
+        villains
+    }
+
+    fn build_simple_villain_party() -> Party {
+        let villains = Party {
+            id: 1,
+            members: vec![PartyMember {
+                id: 0,
+                health: 25.0,
+                damage_taken: 0.0,
+                weapon: Weapon::Stick(Stick { damage: 10.0 }),
+                can_act: true,
+            }],
             can_retreat: false,
             retreated: false,
         };
-
-        let conflict = Conflict {
-            initiator: heroes,
-            opponent: villains,
-        };
-
-        let solution = Solver::engage(&conflict, 100);
-        assert_eq!(solution.outcome, OutcomeType::Win(10.0));
+        villains
     }
 
     #[test]

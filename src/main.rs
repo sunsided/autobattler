@@ -70,8 +70,12 @@ fn main() {
     let outcome = Solver::engage(&conflict, 10);
 
     println!(
-        "Performed {} evaluations with {} cuts at depth {} in {:?}",
-        outcome.evaluations, outcome.cuts, outcome.max_visited_depth, outcome.search_duration
+        "Performed {} evaluations with {} cuts at depth {} in {:?}. The encounter has {} turns.",
+        outcome.evaluations,
+        outcome.cuts,
+        outcome.max_visited_depth,
+        outcome.search_duration,
+        outcome.len()
     );
     match outcome.outcome {
         OutcomeType::Win(score) => println!(
