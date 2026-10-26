@@ -541,16 +541,12 @@ pub struct Event {
     /// The state of the conflict after the action took place.
     pub state: Conflict,
     /// The search score of the action, from the initiator's perspective.
-    #[allow(dead_code)] // Only read by tests until the narration uses it.
     pub score: TerminalState,
     /// Whether [`score`](Event::score) is exact or a bound due to pruning.
-    #[allow(dead_code)] // Only read by tests until the narration uses it.
     pub bound: Bound,
     /// The other explored actions of the same combatant, best first from its perspective.
-    #[allow(dead_code)] // Only read by tests until the narration uses it.
     pub alternatives: Vec<Alternative>,
     /// The number of legal actions that were never generated due to pruning.
-    #[allow(dead_code)] // Only read by tests until the narration uses it.
     pub unexamined: usize,
 }
 
@@ -558,12 +554,10 @@ pub struct Event {
 #[derive(Debug, Clone)]
 pub struct Alternative {
     /// The action.
-    #[allow(dead_code)] // Not read until the narration uses it.
     pub action: AppliedAction,
     /// The search score of the action, from the initiator's perspective.
     pub score: TerminalState,
     /// Whether [`score`](Alternative::score) is exact or a bound due to pruning.
-    #[allow(dead_code)] // Only read by tests until the narration uses it.
     pub bound: Bound,
 }
 
