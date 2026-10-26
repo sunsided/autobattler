@@ -28,6 +28,7 @@ fn main() {
             damage_taken: 0.0,
             weapon: Weapon::Fists(Fists { damage: 10.0 }),
             can_act: true,
+            speed: 6,
         }],
         can_retreat: true,
         retreated: false,
@@ -45,6 +46,7 @@ fn main() {
                 damage_taken: 0.0,
                 weapon: Weapon::Stick(Stick { damage: 5.0 }),
                 can_act: true,
+                speed: 3,
             },
             PartyMember {
                 id: 1,
@@ -52,6 +54,7 @@ fn main() {
                 damage_taken: 0.0,
                 weapon: Weapon::Fists(Fists { damage: 20.0 }),
                 can_act: true,
+                speed: 5,
             },
         ],
         can_retreat: true,
@@ -63,10 +66,7 @@ fn main() {
 
     let names = vec![hero_names, villain_names];
 
-    let conflict = Conflict {
-        initiator: heroes,
-        opponent: villains,
-    };
+    let conflict = Conflict::new(heroes, villains);
 
     let outcome = Solver::engage(&conflict, SolverStrategy::IterativeDeepening(10));
 

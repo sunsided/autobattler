@@ -224,11 +224,15 @@ impl Solver {
                         Conflict {
                             initiator: current,
                             opponent: opponent.clone(),
+                            round: node.state.round,
+                            slot: node.state.slot,
                         }
                     } else {
                         Conflict {
                             initiator: opponent.clone(),
                             opponent: current,
+                            round: node.state.round,
+                            slot: node.state.slot,
                         }
                     };
 
@@ -266,11 +270,15 @@ impl Solver {
                             Conflict {
                                 initiator: current.clone(),
                                 opponent,
+                                round: node.state.round,
+                                slot: node.state.slot,
                             }
                         } else {
                             Conflict {
                                 initiator: opponent,
                                 opponent: current.clone(),
+                                round: node.state.round,
+                                slot: node.state.slot,
                             }
                         };
 
@@ -710,10 +718,7 @@ mod tests {
         let heroes = build_default_hero_party(false, 25.0);
         let villains = build_simple_villain_party();
 
-        let conflict = Conflict {
-            initiator: heroes,
-            opponent: villains,
-        };
+        let conflict = Conflict::new(heroes, villains);
 
         let solution = Solver::engage(&conflict, SolverStrategy::DepthLimited(200));
         assert_eq!(solution.outcome, OutcomeType::Win(5.0));
@@ -724,10 +729,7 @@ mod tests {
         let heroes = build_default_hero_party(true, 20.0); // 👈 an opponent exists that does equal damage
         let villains = build_complex_villain_party(false, 10.0);
 
-        let conflict = Conflict {
-            initiator: heroes,
-            opponent: villains,
-        };
+        let conflict = Conflict::new(heroes, villains);
 
         // In this version, the enemy is not allowed to flee, so the
         // game takes five turns (three strikes for the heros).
@@ -741,10 +743,7 @@ mod tests {
         let heroes = build_default_hero_party(true, 20.0); // 👈 an opponent exists that does equal damage
         let villains = build_complex_villain_party(true, 10.0); // 👈 equal health to the hero damage
 
-        let conflict = Conflict {
-            initiator: heroes,
-            opponent: villains,
-        };
+        let conflict = Conflict::new(heroes, villains);
 
         // The enemy slightly prefers dealing damage over retaining health,
         // resulting in a three-turn game, where the only way of surviving
@@ -761,10 +760,7 @@ mod tests {
         let heroes = build_default_hero_party(true, 20.0); // 👈 an opponent exists that does equal damage
         let villains = build_complex_villain_party(true, 15.0); // 👈 more health than hero does damage
 
-        let conflict = Conflict {
-            initiator: heroes,
-            opponent: villains,
-        };
+        let conflict = Conflict::new(heroes, villains);
 
         let solution = Solver::engage(&conflict, SolverStrategy::DepthLimited(100));
 
@@ -781,10 +777,7 @@ mod tests {
         let heroes = build_default_hero_party(false, 20.0); // 👈 an opponent exists that does equal damage
         let villains = build_complex_villain_party(true, 15.0); // 👈 more health than hero does damage
 
-        let conflict = Conflict {
-            initiator: heroes,
-            opponent: villains,
-        };
+        let conflict = Conflict::new(heroes, villains);
 
         let solution = Solver::engage(&conflict, SolverStrategy::DepthLimited(100));
 
@@ -802,6 +795,7 @@ mod tests {
                 damage_taken: 0.0,
                 weapon: Weapon::Fists(Fists { damage: 10.0 }),
                 can_act: true,
+                speed: 1,
             }],
             can_retreat,
             retreated: false,
@@ -818,6 +812,7 @@ mod tests {
                     damage_taken: 0.0,
                     weapon: Weapon::Stick(Stick { damage: 5.0 }),
                     can_act: true,
+                    speed: 1,
                 },
                 PartyMember {
                     id: 1,
@@ -827,6 +822,7 @@ mod tests {
                         damage: 20.0, // 👈 may defeat hero in one hit
                     }),
                     can_act: true,
+                    speed: 1,
                 },
             ],
             can_retreat,
@@ -843,6 +839,7 @@ mod tests {
                 damage_taken: 0.0,
                 weapon: Weapon::Stick(Stick { damage: 10.0 }),
                 can_act: true,
+                speed: 1,
             }],
             can_retreat: false,
             retreated: false,

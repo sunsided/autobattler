@@ -197,6 +197,7 @@ mod tests {
                 damage_taken: 0.0,
                 weapon: Weapon::Stick(Stick { damage: 10.0 }),
                 can_act: true,
+                speed: 1,
             },
             0..10,
         );
@@ -241,6 +242,7 @@ mod tests {
                 damage_taken: 0.0,
                 weapon: Weapon::Stick(Stick { damage: 10.0 }),
                 can_act: true,
+                speed: 1,
             },
             10..20,
         );
@@ -285,6 +287,7 @@ mod tests {
                     damage_taken: 0.0,
                     weapon: Weapon::Stick(Stick { damage: 10.0 }),
                     can_act: true,
+                    speed: 1,
                 },
                 PartyMember {
                     id: 1,
@@ -292,6 +295,7 @@ mod tests {
                     damage_taken: 0.0,
                     weapon: Weapon::Fists(Fists { damage: 5.0 }),
                     can_act: true,
+                    speed: 1,
                 },
             ],
             can_retreat: false,
@@ -307,6 +311,7 @@ mod tests {
                     damage_taken: 0.0,
                     weapon: Weapon::Stick(Stick { damage: 10.0 }),
                     can_act: true,
+                    speed: 1,
                 },
                 PartyMember {
                     id: 1,
@@ -314,6 +319,7 @@ mod tests {
                     damage_taken: 0.0,
                     weapon: Weapon::Stick(Stick { damage: 10.0 }),
                     can_act: true,
+                    speed: 1,
                 },
             ],
             can_retreat: false,
