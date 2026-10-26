@@ -17,7 +17,6 @@ pub struct PartyMember {
     /// or fled from the encounter.
     pub can_act: bool,
     /// The speed of the member. Faster members act earlier in a round.
-    #[allow(dead_code)] // Read by the initiative order; the solver uses it in a later step.
     pub speed: u32,
 }
 

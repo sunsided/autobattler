@@ -16,7 +16,6 @@ pub struct Conflict {
 }
 
 /// A single turn of a single combatant in a round.
-#[allow(dead_code)] // Wired into the solver in a later step.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Turn {
     /// The round the turn takes place in.
@@ -27,7 +26,6 @@ pub struct Turn {
     pub actor: Participant,
 }
 
-#[allow(dead_code)] // Initiative API is wired into the solver in a later step.
 impl Conflict {
     /// Creates a new conflict at the start of the first round.
     pub fn new(initiator: Party, opponent: Party) -> Self {

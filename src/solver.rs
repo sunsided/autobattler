@@ -1,7 +1,7 @@
 use crate::action::{AppliedAction, TargetedAction};
 use crate::action_iterator::ActionIterator;
-use crate::conflict::Conflict;
-use crate::party::Participant;
+use crate::conflict::{Conflict, Turn};
+use crate::party::{Participant, Party};
 use crate::utility_value::get_utility;
 use crate::value::{Cutoff, TerminalState, Value};
 use log::trace;
@@ -74,8 +74,7 @@ impl Solver {
     /// ## Returns
     /// The [`Outcome`] of the conflict.
     fn minimax(conflict: &Conflict, max_depth: usize) -> Outcome {
-        // We start with a maximizing step, so the value is
-        // initialized to negative infinity.
+        // The root value is initialized according to who acts first.
         let mut nodes = vec![Node::new_root(conflict.clone(), 0)];
 
         let mut depth_limited = false;
@@ -192,25 +191,33 @@ impl Solver {
     fn minimax_expand(mut node: Node, next_child_id: usize) -> ExpansionResult {
         debug_assert!(next_child_id > node.id);
 
-        // Select the currently active party and the opponent.
-        let (current, opponent) = if node.is_maximizing {
+        // If nobody is left to act (a party was defeated, or the round in which
+        // a party retreated is over), this is a terminal state.
+        let Some(turn) = node.state.next_turn() else {
+            return ExpansionResult::new_exhaustion(node);
+        };
+
+        // Select the party of the acting combatant and the opponent.
+        let actor_is_initiator = turn.actor.party_id == node.state.initiator.id;
+        debug_assert_eq!(actor_is_initiator, node.is_maximizing);
+        let (current, opponent) = if actor_is_initiator {
             (&node.state.initiator, &node.state.opponent)
         } else {
             (&node.state.opponent, &node.state.initiator)
         };
 
-        // If the party retreated from the encounter, this is a terminal state.
-        if current.has_retreated() {
-            return ExpansionResult::new_exhaustion(node);
-        }
-
         // If we visit this node for the first time, create the iterator.
         // On all subsequent visits we continue from the last-known state.
+        // Only the acting combatant is enumerated; member IDs equal their indices.
         if node.action_iter.is_none() {
-            node.action_iter = Some(ActionIterator::new(current.clone(), opponent.clone()));
+            let member_id = turn.actor.member_id;
+            node.action_iter = Some(ActionIterator::new_in(
+                current.clone(),
+                opponent.clone(),
+                member_id..member_id + 1,
+            ));
         }
 
-        // Members take actions in turns.
         let source_party_id = current.id;
 
         if let Some(action) = node.action_iter.as_mut().and_then(|i| i.next()) {
@@ -220,25 +227,16 @@ impl Solver {
                     current.retreat();
 
                     // Create a new branch on the board.
-                    let state = if node.is_maximizing {
-                        Conflict {
-                            initiator: current,
-                            opponent: opponent.clone(),
-                            round: node.state.round,
-                            slot: node.state.slot,
-                        }
-                    } else {
-                        Conflict {
-                            initiator: opponent.clone(),
-                            opponent: current,
-                            round: node.state.round,
-                            slot: node.state.slot,
-                        }
-                    };
+                    let mut state = Self::rebuild_state(
+                        &node.state,
+                        actor_is_initiator,
+                        current,
+                        opponent.clone(),
+                    );
+                    state.finish_turn(&turn);
 
-                    // If this is not the last member in the party we need to chain more
-                    // moves. This will create multiple maximize/minimize layers in the tree.
-                    let child_node = Node::new_branch_from(next_child_id, &node, action, state);
+                    let child_node =
+                        Node::new_branch_from(next_child_id, &node, turn, action, state);
 
                     if let Some(action) = &child_node.action {
                         log_expand_node_with_action(&node, &child_node, action);
@@ -249,6 +247,7 @@ impl Solver {
                 AppliedAction::Targeted(action) => {
                     let source_id = action.source.member_id;
                     debug_assert_eq!(action.source.party_id, source_party_id);
+                    debug_assert_eq!(action.source, turn.actor);
 
                     let target_party_id = action.target.party_id;
                     debug_assert_eq!(action.target.party_id, opponent.id);
@@ -266,21 +265,13 @@ impl Solver {
                         opponent.replace_member(target);
 
                         // Create a new branch on the board.
-                        let state = if node.is_maximizing {
-                            Conflict {
-                                initiator: current.clone(),
-                                opponent,
-                                round: node.state.round,
-                                slot: node.state.slot,
-                            }
-                        } else {
-                            Conflict {
-                                initiator: opponent,
-                                opponent: current.clone(),
-                                round: node.state.round,
-                                slot: node.state.slot,
-                            }
-                        };
+                        let mut state = Self::rebuild_state(
+                            &node.state,
+                            actor_is_initiator,
+                            current.clone(),
+                            opponent,
+                        );
+                        state.finish_turn(&turn);
 
                         // The action to apply.
                         let action = AppliedAction::Targeted(TargetedAction {
@@ -295,9 +286,8 @@ impl Solver {
                             },
                         });
 
-                        // If this is not the last member in the party we need to chain more
-                        // moves. This will create multiple maximize/minimize layers in the tree.
-                        let child_node = Node::new_branch_from(next_child_id, &node, action, state);
+                        let child_node =
+                            Node::new_branch_from(next_child_id, &node, turn, action, state);
 
                         if let Some(action) = &child_node.action {
                             log_expand_node_with_action(&node, &child_node, action);
@@ -310,6 +300,33 @@ impl Solver {
         }
 
         ExpansionResult::new_exhaustion(node)
+    }
+
+    /// Builds the child state from the (possibly updated) acting and opposing parties,
+    /// keeping the round and slot of the parent state.
+    ///
+    /// ## Arguments
+    /// * `parent` - The state the action was applied to.
+    /// * `actor_is_initiator` - Whether the `current` party is the initiator.
+    /// * `current` - The party of the acting combatant.
+    /// * `opponent` - The other party.
+    fn rebuild_state(
+        parent: &Conflict,
+        actor_is_initiator: bool,
+        current: Party,
+        opponent: Party,
+    ) -> Conflict {
+        let (initiator, opponent) = if actor_is_initiator {
+            (current, opponent)
+        } else {
+            (opponent, current)
+        };
+        Conflict {
+            initiator,
+            opponent,
+            round: parent.round,
+            slot: parent.slot,
+        }
     }
 
     /// Backtracks the events from the start to one of the the most likely outcomes.
@@ -334,23 +351,25 @@ impl Solver {
             TerminalState::OpenUnexplored(score) => OutcomeType::Unknown(score),
         };
 
+        // Follow the principal variation. If the root has no best child,
+        // the conflict was already decided and the timeline stays empty.
         let mut stack = Vec::default();
-
-        let mut node = &nodes[nodes[0].best_child.expect("A best child node is required")];
-        'backtracking: loop {
+        let mut next = nodes[0].best_child;
+        while let Some(id) = next {
+            let node = &nodes[id];
+            let turn = node.turn.as_ref().expect("Only the root node has no turn");
             stack.push(Event {
-                turn: node.turn,
-                action: node.action.clone().expect(""),
+                round: turn.round,
+                slot: turn.slot,
+                actor: turn.actor.clone(),
+                action: node
+                    .action
+                    .clone()
+                    .expect("Only the root node has no action"),
                 state: node.state.clone(),
                 depth: node.depth,
             });
-
-            if let Some(best_child) = node.best_child {
-                node = &nodes[best_child];
-                continue 'backtracking;
-            }
-
-            break;
+            next = node.best_child;
         }
 
         Outcome {
@@ -449,8 +468,14 @@ pub enum OutcomeType {
 
 /// An event in the timeline.
 pub struct Event {
-    /// The turn in which an event took place.
-    pub turn: usize,
+    /// The round in which the event took place, starting at 1.
+    pub round: usize,
+    /// The slot in the initiative order of the acting combatant.
+    #[allow(dead_code)] // Only read by tests until the narration uses it.
+    pub slot: usize,
+    /// The acting combatant.
+    #[allow(dead_code)] // Only read by tests until the narration uses it.
+    pub actor: Participant,
     /// The action that was applied.
     pub action: AppliedAction,
     /// The depth at which this node was discovered.
@@ -514,14 +539,16 @@ struct Node {
     /// The ID of the node's immediate parent.
     /// Is [`None`] only for the root node.
     pub parent_id: Option<usize>,
-    /// The turn at which this node appeared.
-    pub turn: usize,
+    /// The turn whose action produced this node.
+    /// Is [`None`] only for the root node.
+    pub turn: Option<Turn>,
     /// The depth of the node. If it reaches zero, search is terminated.
     pub depth: usize,
     /// The action iterator; if it yields none, the node is explored completely.
     pub action_iter: Option<ActionIterator>,
     /// Whether this is a maximizing or minimizing node in minimax.
-    /// If maximizing, the represents a move of the initiating party of the conflict.
+    /// If maximizing, the next actor in [`state`](Node::state) belongs to the
+    /// initiating party of the conflict.
     pub is_maximizing: bool,
     /// The utility value of this node. Only meaningful if this is
     /// a terminal node (i.e. win or loss for either side).
@@ -539,13 +566,22 @@ struct Node {
 impl Node {
     /// Creates a new root node.
     pub fn new_root(conflict: Conflict, max_depth: usize) -> Self {
+        // The root may be a turn of either party, depending on initiative.
+        // If nobody can act, the node is terminal and the flag is irrelevant.
+        let is_maximizing = conflict
+            .next_turn()
+            .is_none_or(|turn| turn.actor.party_id == conflict.initiator.id);
         Self {
             id: 0,
             parent_id: None,
             depth: max_depth,
-            turn: 0,
-            is_maximizing: true,
-            value: Value::new(TerminalState::Heuristic(f32::NEG_INFINITY)),
+            turn: None,
+            is_maximizing,
+            value: Value::new(if is_maximizing {
+                TerminalState::Heuristic(f32::NEG_INFINITY)
+            } else {
+                TerminalState::Heuristic(f32::INFINITY)
+            }),
             best_child: None,
             action: None,
             state: conflict,
@@ -553,21 +589,30 @@ impl Node {
         }
     }
 
-    /// Ends this party's turn and by changing from maximizing to minimizing
-    /// and vice versa.
+    /// Creates a child node after the combatant of `turn` acted.
+    ///
+    /// Whether the child is maximizing or minimizing depends on who acts next
+    /// in the child `state`, so consecutive turns of the same party produce
+    /// consecutive layers of the same kind.
     ///
     /// ## Arguments
     /// * `id` - The new ID for the node to be created.
     /// * `parent` - The parent node.
+    /// * `turn` - The turn whose action lead to the child node.
     /// * `action` - The action that lead to the expansion into the child node.
     /// * `state` - The new state observed by the child node after applying the action.
     pub fn new_branch_from(
         id: usize,
         parent: &Node,
+        turn: Turn,
         action: AppliedAction,
         state: Conflict,
     ) -> Self {
-        let is_maximizing = !parent.is_maximizing;
+        // If nobody can act, the node is terminal and the flag is irrelevant.
+        let is_maximizing = match state.next_turn() {
+            Some(next) => next.actor.party_id == state.initiator.id,
+            None => !parent.is_maximizing,
+        };
         Self {
             id,
             parent_id: Some(parent.id),
@@ -583,7 +628,7 @@ impl Node {
             },
             best_child: None,
             depth: parent.depth + 1,
-            turn: parent.turn + 1,
+            turn: Some(turn),
             action: Some(action),
             action_iter: None,
             state,
@@ -709,13 +754,13 @@ fn log_finish_iddfs(depth: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::party::Party;
     use crate::party_member::PartyMember;
     use crate::weapon::{Fists, Stick, Weapon};
 
     #[test]
     fn simple_fight_works() {
-        let heroes = build_default_hero_party(false, 25.0);
+        // The hero is faster, so this is identical to strict alternation.
+        let heroes = build_default_hero_party(false, 25.0, 6);
         let villains = build_simple_villain_party();
 
         let conflict = Conflict::new(heroes, villains);
@@ -726,13 +771,13 @@ mod tests {
 
     #[test]
     fn complex_fight_works() {
-        let heroes = build_default_hero_party(true, 20.0); // 👈 an opponent exists that does equal damage
+        let heroes = build_default_hero_party(true, 20.0, 6); // 👈 an opponent exists that does equal damage
         let villains = build_complex_villain_party(false, 10.0);
 
         let conflict = Conflict::new(heroes, villains);
 
-        // In this version, the enemy is not allowed to flee, so the
-        // game takes five turns (three strikes for the heros).
+        // In this version, the enemy is not allowed to flee. The hero kills
+        // Molphige first, then trades blows with Ziuon.
         let solution = Solver::engage(&conflict, SolverStrategy::DepthLimited(100));
         assert_eq!(solution.outcome, OutcomeType::Win(10.0));
         assert_eq!(solution.len(), 5);
@@ -740,53 +785,99 @@ mod tests {
 
     #[test]
     fn complex_fight_opponent_flees() {
-        let heroes = build_default_hero_party(true, 20.0); // 👈 an opponent exists that does equal damage
+        let heroes = build_default_hero_party(true, 20.0, 6); // 👈 an opponent exists that does equal damage
         let villains = build_complex_villain_party(true, 10.0); // 👈 equal health to the hero damage
 
         let conflict = Conflict::new(heroes, villains);
 
-        // The enemy slightly prefers dealing damage over retaining health,
-        // resulting in a three-turn game, where the only way of surviving
-        // is to flee after the first initiator move. Since the remaining
-        // party always has one extra move, the hero gets either two strikes
-        // or three, but three strikes are enough to defeat the enemy.
+        // Ziuon takes one swing, then flees from the last slot of round two,
+        // which gives the hero no parting shot: 15 health * 0.1.
         let solution = Solver::engage(&conflict, SolverStrategy::DepthLimited(100));
-        assert_eq!(solution.outcome, OutcomeType::Remain(2.0));
-        assert_eq!(solution.len(), 3);
+        assert_eq!(solution.outcome, OutcomeType::Remain(1.5));
+        assert_eq!(solution.len(), 4);
     }
 
     #[test]
-    fn complex_fight_initiator_flees() {
-        let heroes = build_default_hero_party(true, 20.0); // 👈 an opponent exists that does equal damage
+    fn complex_fight_initiator_cannot_outrun_faster_enemy() {
+        let heroes = build_default_hero_party(true, 20.0, 6); // 👈 an opponent exists that does equal damage
         let villains = build_complex_villain_party(true, 15.0); // 👈 more health than hero does damage
 
         let conflict = Conflict::new(heroes, villains);
 
         let solution = Solver::engage(&conflict, SolverStrategy::DepthLimited(100));
 
-        // Since the hero will be one-hit by the second enemy, the only
-        // meaningful action is to flee in turn one.
-        // Due to the mechanics, the enemy will get an extra turn, resulting
-        // in a two-turn outcome.
-        assert_eq!(solution.outcome, OutcomeType::Retreat(-0.5));
+        // Fleeing in slot 0 still lets Molphige (slot 1) strike, which
+        // defeats the hero in one hit.
+        assert_eq!(solution.outcome, OutcomeType::Lose(-20.0));
         assert_eq!(solution.len(), 2);
     }
 
     #[test]
     fn complex_fight_initiator_defeated() {
-        let heroes = build_default_hero_party(false, 20.0); // 👈 an opponent exists that does equal damage
+        let heroes = build_default_hero_party(false, 20.0, 6); // 👈 an opponent exists that does equal damage
         let villains = build_complex_villain_party(true, 15.0); // 👈 more health than hero does damage
 
         let conflict = Conflict::new(heroes, villains);
 
         let solution = Solver::engage(&conflict, SolverStrategy::DepthLimited(100));
 
-        // In this setup the hero is not allowed to flee, leading to a defeat.
+        // Any first move is answered by Molphige's 20-damage punch.
         assert_eq!(solution.outcome, OutcomeType::Lose(-20.0));
-        assert_eq!(solution.len(), 8);
+        assert_eq!(solution.len(), 2);
     }
 
-    fn build_default_hero_party(can_retreat: bool, health: f32) -> Party {
+    #[test]
+    fn slow_initiator_flees_at_round_end() {
+        // Order: Molphige(5), Ziuon(3), hero(1). Hero takes 20 + 5, then flees from
+        // the last slot, so no enemy acts again: Retreat(-25 * 0.1).
+        let conflict = Conflict::new(
+            build_default_hero_party(true, 30.0, 1),
+            build_complex_villain_party(true, 15.0),
+        );
+        let solution = Solver::engage(&conflict, SolverStrategy::DepthLimited(100));
+        assert_eq!(solution.outcome, OutcomeType::Retreat(-2.5));
+        assert_eq!(solution.len(), 3);
+        assert_eq!(solution.timeline[2].action, AppliedAction::Flee);
+        assert_eq!(
+            solution.timeline[0].actor,
+            Participant {
+                party_id: 1,
+                member_id: 1
+            }
+        );
+    }
+
+    #[test]
+    fn events_carry_round_slot_and_actor() {
+        let conflict = Conflict::new(
+            build_default_hero_party(true, 20.0, 6),
+            build_complex_villain_party(false, 10.0),
+        );
+        let solution = Solver::engage(&conflict, SolverStrategy::DepthLimited(100));
+        let e = &solution.timeline;
+        assert_eq!((e[0].round, e[0].slot), (1, 0)); // Brull
+        assert_eq!((e[1].round, e[1].slot), (1, 2)); // Ziuon; Molphige's slot skipped
+        assert_eq!((e[2].round, e[2].slot), (2, 0));
+        assert_eq!(
+            e[1].actor,
+            Participant {
+                party_id: 1,
+                member_id: 0
+            }
+        );
+    }
+
+    #[test]
+    fn already_decided_conflict_has_empty_timeline() {
+        let mut villains = build_simple_villain_party();
+        villains.members[0].health = 0.0;
+        let conflict = Conflict::new(build_default_hero_party(false, 20.0, 6), villains);
+        let solution = Solver::engage(&conflict, SolverStrategy::IterativeDeepening(10));
+        assert!(solution.timeline.is_empty());
+        assert!(matches!(solution.outcome, OutcomeType::Win(_)));
+    }
+
+    fn build_default_hero_party(can_retreat: bool, health: f32, speed: u32) -> Party {
         Party {
             id: 0,
             members: vec![PartyMember {
@@ -795,7 +886,7 @@ mod tests {
                 damage_taken: 0.0,
                 weapon: Weapon::Fists(Fists { damage: 10.0 }),
                 can_act: true,
-                speed: 1,
+                speed,
             }],
             can_retreat,
             retreated: false,
@@ -812,7 +903,7 @@ mod tests {
                     damage_taken: 0.0,
                     weapon: Weapon::Stick(Stick { damage: 5.0 }),
                     can_act: true,
-                    speed: 1,
+                    speed: 3,
                 },
                 PartyMember {
                     id: 1,
@@ -822,7 +913,7 @@ mod tests {
                         damage: 20.0, // 👈 may defeat hero in one hit
                     }),
                     can_act: true,
-                    speed: 1,
+                    speed: 5,
                 },
             ],
             can_retreat,
@@ -839,7 +930,7 @@ mod tests {
                 damage_taken: 0.0,
                 weapon: Weapon::Stick(Stick { damage: 10.0 }),
                 can_act: true,
-                speed: 1,
+                speed: 3,
             }],
             can_retreat: false,
             retreated: false,

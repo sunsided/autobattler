@@ -136,8 +136,8 @@ fn main() {
     let initiator_party = conflict.initiator.id;
     for event in outcome.timeline {
         println!(
-            "\nTurn {} (discovered at step {}):",
-            format!("{}", event.turn).bright_white(),
+            "\nRound {} (discovered at step {}):",
+            format!("{}", event.round).bright_white(),
             event.depth
         );
 
