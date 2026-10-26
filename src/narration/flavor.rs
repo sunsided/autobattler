@@ -67,6 +67,7 @@ pub(crate) fn outro(
     villains: &[&str],
     rounds: usize,
 ) -> String {
+    let hold = if heroes.len() > 1 { "hold" } else { "holds" };
     let heroes = join_names(heroes);
     let villains = join_names(villains);
     let n = format!("{} round{}", rounds, if rounds == 1 { "" } else { "s" });
@@ -74,7 +75,7 @@ pub(crate) fn outro(
         OutcomeType::Win(_) => format!("🏁 Victory for {heroes} after {n}."),
         OutcomeType::Lose(_) => format!("🏁 {heroes} fell after {n}."),
         OutcomeType::Remain(_) => {
-            format!("🏁 {villains} fled; {heroes} hold the field after {n}.")
+            format!("🏁 {villains} fled; {heroes} {hold} the field after {n}.")
         }
         OutcomeType::Retreat(_) => format!("🏁 {heroes} escaped after {n}."),
         OutcomeType::Unknown(_) => {
@@ -182,7 +183,11 @@ mod tests {
     fn outro_other_outcomes() {
         assert_eq!(
             outro(&OutcomeType::Remain(0.0), &["A"], &["B", "C"], 2),
-            "🏁 B and C fled; A hold the field after 2 rounds."
+            "🏁 B and C fled; A holds the field after 2 rounds."
+        );
+        assert_eq!(
+            outro(&OutcomeType::Remain(0.0), &["A", "D"], &["B"], 1),
+            "🏁 B fled; A and D hold the field after 1 round."
         );
         assert_eq!(
             outro(&OutcomeType::Retreat(0.0), &["A"], &["B"], 2),
