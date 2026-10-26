@@ -56,7 +56,7 @@ impl PartyMember {
         // This has no real reason apart from being much cooler to look at.
         self.damage_taken += attack.damage;
 
-        return true;
+        true
     }
 
     /// Returns an iterator listing all possible actions the party

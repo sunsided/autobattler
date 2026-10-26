@@ -124,7 +124,7 @@ impl Solver {
             };
 
             if !continue_expansion {
-                Self::propagate_to_parent(&mut nodes, &mut node);
+                Self::propagate_to_parent(&mut nodes, &node);
                 continue 'dfs;
             }
 
@@ -149,7 +149,7 @@ impl Solver {
                     nodes[id].value = node.value.clone();
 
                     // Update the value in the nodes set first before iterating.
-                    Self::propagate_to_parent(&mut nodes, &mut node);
+                    Self::propagate_to_parent(&mut nodes, &node);
                     node
                 }
                 ExpansionResult::Expanded(Expansion { parent, child }) => {
@@ -213,7 +213,7 @@ impl Solver {
         // Members take actions in turns.
         let source_party_id = current.id;
 
-        if let Some(action) = node.action_iter.as_mut().map_or(None, |i| i.next()) {
+        if let Some(action) = node.action_iter.as_mut().and_then(|i| i.next()) {
             match action {
                 AppliedAction::Flee => {
                     let mut current = current.clone();
@@ -237,7 +237,7 @@ impl Solver {
                     let child_node = Node::new_branch_from(next_child_id, &node, action, state);
 
                     if let Some(action) = &child_node.action {
-                        log_expand_node_with_action(&node, &child_node, &action);
+                        log_expand_node_with_action(&node, &child_node, action);
                     }
 
                     return ExpansionResult::new_expansion(node, child_node);
@@ -292,7 +292,7 @@ impl Solver {
                         let child_node = Node::new_branch_from(next_child_id, &node, action, state);
 
                         if let Some(action) = &child_node.action {
-                            log_expand_node_with_action(&node, &child_node, &action);
+                            log_expand_node_with_action(&node, &child_node, action);
                         }
 
                         return ExpansionResult::new_expansion(node, child_node);
@@ -332,7 +332,6 @@ impl Solver {
         'backtracking: loop {
             stack.push(Event {
                 turn: node.turn,
-                is_initiator_turn: node.is_maximizing,
                 action: node.action.clone().expect(""),
                 state: node.state.clone(),
                 depth: node.depth,
@@ -359,7 +358,7 @@ impl Solver {
 
     /// Propagates known terminal utility values upwards in the
     /// search tree.
-    fn propagate_to_parent(nodes: &mut Vec<Node>, child_node: &Node) -> Cutoff {
+    fn propagate_to_parent(nodes: &mut [Node], child_node: &Node) -> Cutoff {
         let parent_id = child_node.parent_id;
 
         if let Some(id) = parent_id {
@@ -444,8 +443,6 @@ pub enum OutcomeType {
 pub struct Event {
     /// The turn in which an event took place.
     pub turn: usize,
-    /// Whether this turn is performed by the initiating party.
-    pub is_initiator_turn: bool,
     /// The action that was applied.
     pub action: AppliedAction,
     /// The depth at which this node was discovered.
@@ -455,6 +452,10 @@ pub struct Event {
 }
 
 /// A tree expansion outcome.
+///
+/// Only ever lives as a short return value, so boxing the larger variant
+/// would just add a heap allocation per expansion.
+#[allow(clippy::large_enum_variant)]
 enum ExpansionResult {
     /// A new node was added.
     Expanded(Expansion),
@@ -793,7 +794,7 @@ mod tests {
     }
 
     fn build_default_hero_party(can_retreat: bool, health: f32) -> Party {
-        let heroes = Party {
+        Party {
             id: 0,
             members: vec![PartyMember {
                 id: 0,
@@ -804,12 +805,11 @@ mod tests {
             }],
             can_retreat,
             retreated: false,
-        };
-        heroes
+        }
     }
 
     fn build_complex_villain_party(can_retreat: bool, dangerous_health: f32) -> Party {
-        let villains = Party {
+        Party {
             id: 1,
             members: vec![
                 PartyMember {
@@ -831,12 +831,11 @@ mod tests {
             ],
             can_retreat,
             retreated: false,
-        };
-        villains
+        }
     }
 
     fn build_simple_villain_party() -> Party {
-        let villains = Party {
+        Party {
             id: 1,
             members: vec![PartyMember {
                 id: 0,
@@ -847,8 +846,7 @@ mod tests {
             }],
             can_retreat: false,
             retreated: false,
-        };
-        villains
+        }
     }
 
     #[test]

@@ -102,7 +102,7 @@ impl Iterator for ActionIterator {
                 self.iter = Some(ActionTargetIterator::new(member, target_range));
             }
 
-            match self.iter.as_mut().map_or(None, |i| i.next()) {
+            match self.iter.as_mut().and_then(|i| i.next()) {
                 None => {
                     // The iterator was exhausted, so we continue with the next member.
                     self.current_index += 1;

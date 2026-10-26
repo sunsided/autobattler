@@ -177,7 +177,7 @@ fn main() {
 
 fn color_participant(
     initiator_party: usize,
-    names: &Vec<Vec<String>>,
+    names: &[Vec<String>],
     target: &Participant,
 ) -> ColoredString {
     if target.party_id == initiator_party {
