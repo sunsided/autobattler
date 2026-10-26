@@ -1,0 +1,104 @@
+# https://taskfile.dev
+version: '3'
+
+vars:
+  PROFILE: '{{ .PROFILE | default "debug" }}'
+  PROFILE_FLAG: '{{ if eq .PROFILE "release" }}--release{{ end }}'
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list --sort=none
+    silent: true
+
+  cargo:check-installed:
+    internal: true
+    preconditions:
+      - sh: command -v cargo
+        msg: "cargo not found — install Rust from https://rustup.rs/"
+
+  run:
+    desc: Run the autobattler (PROFILE=release for optimized build)
+    deps: [cargo:check-installed]
+    cmds:
+      - cargo run {{.PROFILE_FLAG}} -- {{.CLI_ARGS}}
+
+  build:
+    desc: Build the crate (PROFILE=release for optimized build)
+    deps: [cargo:check-installed]
+    cmds:
+      - cargo build --all-targets {{.PROFILE_FLAG}}
+
+  build:release:
+    desc: Build the crate (release)
+    cmds:
+      - task: build
+        vars: { PROFILE: release }
+
+  test:
+    desc: Run the test suite
+    deps: [cargo:check-installed]
+    cmds:
+      - cargo test --all-targets {{.CLI_ARGS}}
+
+  fmt:
+    desc: Format all Rust sources
+    aliases: [format]
+    deps: [cargo:check-installed]
+    cmds:
+      - cargo fmt --all
+
+  fmt:check:
+    desc: Check formatting without modifying files
+    deps: [cargo:check-installed]
+    cmds:
+      - cargo fmt --all -- --check
+
+  lint:
+    desc: Run clippy (warnings as errors)
+    deps: [cargo:check-installed]
+    cmds:
+      - cargo clippy --all-targets --all-features -- -D warnings
+
+  lint:fix:
+    desc: Auto-fix clippy lints, then format
+    aliases: [fix]
+    deps: [cargo:check-installed]
+    cmds:
+      - cargo clippy --all-targets --all-features --fix --allow-dirty --allow-staged
+      - task: fmt
+
+  check:
+    desc: Type-check and verify formatting
+    deps: [cargo:check-installed]
+    cmds:
+      - cargo check --all-targets
+      - task: fmt:check
+
+  ci:
+    desc: Run checks expected in CI (fmt check, lint, test)
+    cmds:
+      - task: fmt:check
+      - task: lint
+      - task: test
+
+  docs:
+    desc: Build rustdoc
+    deps: [cargo:check-installed]
+    cmds:
+      - cargo doc --no-deps
+
+  docs:open:
+    desc: Build and open rustdoc in the browser
+    deps: [cargo:check-installed]
+    cmds:
+      - cargo doc --no-deps --open
+
+  clean:
+    desc: Remove build artifacts
+    deps: [cargo:check-installed]
+    status:
+      - test ! -d target
+    cmds:
+      - cargo clean
