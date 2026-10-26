@@ -10,7 +10,7 @@ Ziuon jabs at Brull with a stick — 5 damage.
 
 ══ Round 2 ══  initiative: Brull(6) → Ziuon(3)
 Brull lands a haymaker on Ziuon — 10 damage.
-Ziuon sounds the retreat — Ziuon flees!
+Ziuon sounds the retreat and flees!
 
   Brull     ███████████████░░░░░ 15/20
   Ziuon     ↩ fled

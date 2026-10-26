@@ -19,8 +19,8 @@ Ziuon jabs at Brull with a stick — 5 damage.
 Brull lands a haymaker on Ziuon — 10 damage.
    ↳ tactician: expects they escape (1.5)
        alt: glare at Ziuon → they escape  (≤ 1)
-       alt: order retreat  → escape  (≤ -1)
-Ziuon sounds the retreat — Ziuon flees!
+       alt: order retreat  → escape       (≤ -1)
+Ziuon sounds the retreat and flees!
    ↳ tactician: expects escape (1.5)
        alt: whack Brull    → defeat  (10)
        alt: glare at Brull → defeat  (≥ 14)

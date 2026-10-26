@@ -65,17 +65,27 @@ pub(crate) fn tactician_lines(
         .alternatives
         .iter()
         .take(SHOWN_ALTERNATIVES)
-        .map(|alt| (action_label(&alt.action, names), alt))
+        .map(|alt| {
+            (
+                action_label(&alt.action, names),
+                outcome_words(&alt.score, actor_is_initiator),
+                alt,
+            )
+        })
         .collect();
-    let width = shown
+    let label_width = shown
         .iter()
-        .map(|(label, _)| label.chars().count())
+        .map(|(label, _, _)| label.chars().count())
         .max()
         .unwrap_or(0);
-    for (label, alt) in &shown {
+    let words_width = shown
+        .iter()
+        .map(|(_, words, _)| words.chars().count())
+        .max()
+        .unwrap_or(0);
+    for (label, words, alt) in &shown {
         lines.push(format!(
-            "       alt: {label:<width$} → {}  ({})",
-            outcome_words(&alt.score, actor_is_initiator),
+            "       alt: {label:<label_width$} → {words:<words_width$}  ({})",
             score_text(&alt.score, alt.bound)
         ));
     }
@@ -230,9 +240,28 @@ mod tests {
             tactician_lines(&event(alts, 1), true, &names()),
             vec![
                 "   ↳ tactician: expects a win (10)".to_string(),
-                "       alt: punch Ziuon       → a win  (8)".to_string(),
+                "       alt: punch Ziuon       → a win   (8)".to_string(),
                 "       alt: glare at Molphige → defeat  (≤ -20)".to_string(),
                 "       +2 more, 1 not examined".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn alternative_scores_line_up() {
+        let alts = vec![
+            alt(attack(None, 0), TerminalState::Remain(1.0), Bound::AtMost),
+            alt(
+                AppliedAction::Flee,
+                TerminalState::Retreat(-1.0),
+                Bound::AtMost,
+            ),
+        ];
+        assert_eq!(
+            tactician_lines(&event(alts, 0), true, &names())[1..],
+            [
+                "       alt: glare at Ziuon → they escape  (≤ 1)".to_string(),
+                "       alt: order retreat  → escape       (≤ -1)".to_string(),
             ]
         );
     }

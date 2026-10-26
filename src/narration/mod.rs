@@ -158,24 +158,22 @@ impl<'a> Narrator<'a> {
             }
             AppliedAction::Flee => {
                 let party = event.state.action_target(event.actor.party_id);
-                let fleeing: Vec<String> = party
+                let fleeing: Vec<Participant> = party
                     .members
                     .iter()
                     .filter(|m| !m.is_dead())
-                    .map(|m| {
-                        let p = Participant {
-                            party_id: party.id,
-                            member_id: m.id,
-                        };
-                        self.colored_name(initiator, &p).to_string()
+                    .map(|m| Participant {
+                        party_id: party.id,
+                        member_id: m.id,
                     })
                     .collect();
+                let actor_alone = fleeing == std::slice::from_ref(&event.actor);
+                let fleeing: Vec<String> = fleeing
+                    .iter()
+                    .map(|p| self.colored_name(initiator, p).to_string())
+                    .collect();
                 let fleeing: Vec<&str> = fleeing.iter().map(String::as_str).collect();
-                let verb = if fleeing.len() == 1 { "flees" } else { "flee" };
-                format!(
-                    "{actor} sounds the retreat — {} {verb}!",
-                    flavor::join_names(&fleeing)
-                )
+                retreat_line(&actor.to_string(), &fleeing, actor_alone)
             }
         };
 
@@ -221,6 +219,18 @@ impl<'a> Narrator<'a> {
             alive
         }
     }
+}
+
+/// Announces a retreat; `actor_alone` means the actor is the only one fleeing.
+fn retreat_line(actor: &str, fleeing: &[&str], actor_alone: bool) -> String {
+    if actor_alone {
+        return format!("{actor} sounds the retreat and flees!");
+    }
+    let verb = if fleeing.len() == 1 { "flees" } else { "flee" };
+    format!(
+        "{actor} sounds the retreat — {} {verb}!",
+        flavor::join_names(fleeing)
+    )
 }
 
 #[cfg(test)]
@@ -287,5 +297,42 @@ mod tests {
         let text = render_conflict(&conflict, true);
         assert!(text.contains("Nothing happens."), "{text}");
         assert!(!text.contains("Round"), "{text}");
+
+        let names = names();
+        let outcome = Solver::engage(&conflict, SolverStrategy::IterativeDeepening(10));
+        let kinds: Vec<BeatKind> = Narrator::new(&names, NarrationOptions { explain: true })
+            .narrate(&conflict, &outcome)
+            .iter()
+            .map(|beat| beat.kind)
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![
+                BeatKind::Intro,
+                BeatKind::Action,
+                BeatKind::Outro,
+                BeatKind::Stats
+            ]
+        );
+    }
+
+    #[test]
+    fn retreat_line_when_actor_flees_alone() {
+        assert_eq!(
+            retreat_line("Ziuon", &["Ziuon"], true),
+            "Ziuon sounds the retreat and flees!"
+        );
+    }
+
+    #[test]
+    fn retreat_line_names_the_fleeing_party() {
+        assert_eq!(
+            retreat_line("Ziuon", &["Ziuon", "Molphige"], false),
+            "Ziuon sounds the retreat — Ziuon and Molphige flee!"
+        );
+        assert_eq!(
+            retreat_line("Ziuon", &["Molphige"], false),
+            "Ziuon sounds the retreat — Molphige flees!"
+        );
     }
 }
