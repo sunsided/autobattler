@@ -75,7 +75,7 @@ the tactician notes.
   - [ ] Applying an effect to a party member,
   - [ ] Skip the turn, i.e. do nothing.
 - In addition, the faction as a whole can flee.
-  - [x] If a faction flees, the opposing faction gets one last turn.
+  - [x] If a faction flees, the opposing faction finishes the current round; the fight ends after it.
 - [ ] Party members can panic and either flee, be paralyzed or attack their own faction.
  
 As for actions,

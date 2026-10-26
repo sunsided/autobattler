@@ -504,7 +504,7 @@ pub struct Outcome {
 
 impl Outcome {
     /// The number of events in the timeline.
-    #[allow(dead_code)] // Only the tests need it now that the narrator walks the timeline.
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.timeline.len()
     }
