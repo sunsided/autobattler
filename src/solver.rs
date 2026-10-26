@@ -529,10 +529,8 @@ pub struct Event {
     /// The round in which the event took place, starting at 1.
     pub round: usize,
     /// The slot in the initiative order of the acting combatant.
-    #[allow(dead_code)] // Only read by tests until the narration uses it.
     pub slot: usize,
     /// The acting combatant.
-    #[allow(dead_code)] // Only read by tests until the narration uses it.
     pub actor: Participant,
     /// The action that was applied.
     pub action: AppliedAction,

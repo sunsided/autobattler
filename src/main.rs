@@ -1,18 +1,18 @@
 use crate::action::{Action, AppliedAction};
-use crate::conflict::Conflict;
-use crate::party::{Participant, Party};
-use crate::party_member::PartyMember;
+use crate::party::Participant;
 use crate::solver::{OutcomeType, Solver, SolverStrategy};
-use crate::weapon::{Fists, Stick, Weapon};
 use colored::{ColoredString, Colorize};
 use rnglib::{Language, RNG};
 
 mod action;
 mod action_iterator;
 mod conflict;
+// Wired into main in the next task.
+#[allow(dead_code)]
 mod narration;
 mod party;
 mod party_member;
+mod scenario;
 mod solver;
 mod utility_value;
 mod value;
@@ -21,53 +21,15 @@ mod weapon;
 fn main() {
     env_logger::init();
 
-    let heroes = Party {
-        id: 0,
-        members: vec![PartyMember {
-            id: 0,
-            health: 20.0,
-            damage_taken: 0.0,
-            weapon: Weapon::Fists(Fists { damage: 10.0 }),
-            can_act: true,
-            speed: 6,
-        }],
-        can_retreat: true,
-        retreated: false,
-    };
+    let conflict = scenario::default_conflict();
 
     let rng = RNG::try_from(&Language::Fantasy).unwrap();
-    let hero_names = rng.generate_names(heroes.len(), false);
-
-    let villains = Party {
-        id: 1,
-        members: vec![
-            PartyMember {
-                id: 0,
-                health: 15.0,
-                damage_taken: 0.0,
-                weapon: Weapon::Stick(Stick { damage: 5.0 }),
-                can_act: true,
-                speed: 3,
-            },
-            PartyMember {
-                id: 1,
-                health: 10.0,
-                damage_taken: 0.0,
-                weapon: Weapon::Fists(Fists { damage: 20.0 }),
-                can_act: true,
-                speed: 5,
-            },
-        ],
-        can_retreat: true,
-        retreated: false,
-    };
+    let hero_names = rng.generate_names(conflict.initiator.len(), false);
 
     let rng = RNG::try_from(&Language::Demonic).unwrap();
-    let villain_names = rng.generate_names(villains.len(), false);
+    let villain_names = rng.generate_names(conflict.opponent.len(), false);
 
     let names = vec![hero_names, villain_names];
-
-    let conflict = Conflict::new(heroes, villains);
 
     let outcome = Solver::engage(&conflict, SolverStrategy::IterativeDeepening(10));
 
