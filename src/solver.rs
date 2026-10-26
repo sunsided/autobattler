@@ -415,7 +415,6 @@ impl Solver {
                     .clone()
                     .expect("Only the root node has no action"),
                 state: node.state.clone(),
-                depth: node.depth,
                 score: *node.value,
                 bound: node.bound,
                 alternatives,
@@ -504,6 +503,8 @@ pub struct Outcome {
 }
 
 impl Outcome {
+    /// The number of events in the timeline.
+    #[allow(dead_code)] // Only the tests need it now that the narrator walks the timeline.
     pub fn len(&self) -> usize {
         self.timeline.len()
     }
@@ -534,8 +535,6 @@ pub struct Event {
     pub actor: Participant,
     /// The action that was applied.
     pub action: AppliedAction,
-    /// The depth at which this node was discovered.
-    pub depth: usize,
     /// The state of the conflict after the action took place.
     pub state: Conflict,
     /// The search score of the action, from the initiator's perspective.

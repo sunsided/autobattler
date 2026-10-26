@@ -2,6 +2,7 @@
 
 mod flavor;
 mod panel;
+pub mod playback;
 mod reasoning;
 
 use crate::action::{Action, AppliedAction};

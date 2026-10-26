@@ -12,73 +12,58 @@ This is definitely not rocket science being done here. Expect more minimax than 
 
 ## Example outcome
 
-The following is an example of how it may unfold.
+The following is an example of how it may unfold. (Names are generated at random on every run;
+the ones below are the fixed names the narration tests use.)
 
-We see the hero party, consisting of _Brull_, as well as the enemy party, consisting of _Ziuon_ and _Molphige_. 
+We see the hero party, consisting of _Brull_, as well as the enemy party, consisting of _Ziuon_ and _Molphige_.
 _Ziuon_ deals only 5 damage with their stick, but _Molphige_ deals 20 with their fists, which will take
-_Brull_ out in one hit. Regardless of _Molphige_ being the third one to move, the only viable option is
-for _Brull_ to attack _Molphige_ first to ensure they can never make a move to begin with.
+_Brull_ out in one hit. Fights are played in rounds, and within a round the fastest combatant acts first.
+_Brull_ is the fastest (speed 6), so the only viable option is to take _Molphige_ out before he can swing.
 
-That is indeed what happens:
-
-```
-Performed 921 evaluations with 221 cuts at depth 8 in 309.766µs. The encounter has 5 turns.
-TL;DR: The initiating party wins with a score of 10.
-
-On the attacking side:
-- Brull, with 20 health and their fists (10 damage)
-
-On the defending side:
-- Ziuon, with 15 health and a stick (5 damage)
-- Molphige, with 10 health and their fists (20 damage)
-
-Turn 1 (discovered at step 1):
-  Brull whacks Molphige with their fists, dealing 10 damage
-   ⇒ Molphige has given up on being alive
-
-Turn 2 (discovered at step 2):
-  Ziuon whacks Brull with a stick, dealing 5 damage
-   ⇒ Brull now has 15 health
-
-Turn 3 (discovered at step 3):
-  Brull whacks Ziuon with their fists, dealing 10 damage
-   ⇒ Ziuon now has 5 health
-
-Turn 4 (discovered at step 4):
-  Ziuon whacks Brull with a stick, dealing 5 damage
-   ⇒ Brull now has 10 health
-
-Turn 5 (discovered at step 5):
-  Brull whacks Ziuon with their fists, dealing 10 damage
-   ⇒ Ziuon has given up on being alive
-```
-
-If retreats are allowed for the enemy party, the game has a different outcome: The enemy
-now decides to flee at their first chance. The hero party still gets an extra move, but it is not
-enough to result in a defeat of the enemy.
+That is indeed what happens. _Ziuon_ trades one blow, takes a haymaker in return and, acting last in
+round 2, sounds the retreat. With nobody left to act in that round, there is no parting shot.
+The lines marked _tactician_ explain each choice: what the acting side expects, and the best
+alternatives it passed up, with their scores from the initiator's point of view
+(`≤`/`≥` mark bounds that alpha-beta pruning left open).
 
 ```
-Performed 1063 evaluations with 247 cuts at depth 8 in 360.599µs. The encounter has 3 turns.
-TL;DR: The initiating party let the opponent flee with a score of 2.
+⚔  Brull stands against Ziuon and Molphige.
 
-On the attacking side:
-- Brull, with 20 health and their fists (10 damage)
+══ Round 1 ══  initiative: Brull(6) → Molphige(5) → Ziuon(3)
+Brull jabs Molphige — 10 damage. Molphige is down!
+   ↳ tactician: expects they escape (1.5)
+       alt: punch Ziuon    → defeat  (≤ -20)
+       alt: glare at Ziuon → defeat  (≤ -20)
+       +2 more
+Ziuon jabs at Brull with a stick — 5 damage.
+   ↳ tactician: expects escape (1.5)
+       alt: glare at Brull → escape  (≥ 1.9)
+       alt: order retreat  → escape  (2)
 
-On the defending side:
-- Ziuon, with 15 health and a stick (5 damage)
-- Molphige, with 10 health and their fists (20 damage)
+  Brull     ███████████████░░░░░ 15/20
+  Ziuon     ████████████████████ 15/15
+  Molphige  ✝ fallen
 
-Turn 1 (discovered at step 1):
-  Brull whacks Molphige with their fists, dealing 10 damage
-   ⇒ Molphige has given up on being alive
+══ Round 2 ══  initiative: Brull(6) → Ziuon(3)
+Brull lands a haymaker on Ziuon — 10 damage.
+   ↳ tactician: expects they escape (1.5)
+       alt: glare at Ziuon → they escape  (≤ 1)
+       alt: order retreat  → escape       (≤ -1)
+Ziuon sounds the retreat and flees!
+   ↳ tactician: expects escape (1.5)
+       alt: whack Brull    → defeat  (10)
+       alt: glare at Brull → defeat  (≥ 14)
 
-Turn 2 (discovered at step 2):
-  the party flees
+  Brull     ███████████████░░░░░ 15/20
+  Ziuon     ↩ fled
+  Molphige  ✝ fallen
 
-Turn 3 (discovered at step 3):
-  Brull whacks Ziuon with their fists, dealing 10 damage
-   ⇒ Ziuon now has 5 health
+🏁 Ziuon fled; Brull holds the field after 2 rounds.
 ```
+
+A line with search statistics follows at the end. Run it with `task run`; the log plays back live
+in a terminal, `task run -- --fast` prints it all at once and `task run -- --no-explain` leaves out
+the tactician notes.
 
 ## Rules of ~~Engagement~~ the Game
 

@@ -173,7 +173,6 @@ mod tests {
                 member_id: 0,
             },
             action: attack(fists(), 0),
-            depth: 0,
             state: Conflict::new(
                 party(0, vec![member(0)]),
                 party(1, vec![member(0), member(1)]),
