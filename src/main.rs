@@ -10,6 +10,7 @@ use rnglib::{Language, RNG};
 mod action;
 mod action_iterator;
 mod conflict;
+mod narration;
 mod party;
 mod party_member;
 mod solver;
