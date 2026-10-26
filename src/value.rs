@@ -24,6 +24,39 @@ pub enum Bound {
     AtMost,
     /// The exploration was cut short; the true score is at least this value.
     AtLeast,
+    /// The true score may lie on either side of this value.
+    Approximate,
+}
+
+/// Combines what is known about a node's children into the bound of its value.
+///
+/// ## Arguments
+/// * `is_maximizing` - Whether the node picks the highest child value.
+/// * `cut` - Whether the node stopped expanding at a cutoff, leaving children unexplored.
+/// * `best` - The bound of the child that set the node's value.
+/// * `widened` - Whether any explored child may be better for the node than its
+///   score says (a maximizer saw [`Bound::AtLeast`], a minimizer [`Bound::AtMost`],
+///   either saw [`Bound::Approximate`]).
+pub fn combine_bound(is_maximizing: bool, cut: bool, best: Bound, widened: bool) -> Bound {
+    // The best child pins the side the node optimizes away from; the other side
+    // is only safe if no child (explored or not) could beat the score.
+    let (lower_ok, upper_ok) = if is_maximizing {
+        (
+            matches!(best, Bound::Exact | Bound::AtLeast),
+            !cut && !widened,
+        )
+    } else {
+        (
+            !cut && !widened,
+            matches!(best, Bound::Exact | Bound::AtMost),
+        )
+    };
+    match (lower_ok, upper_ok) {
+        (true, true) => Bound::Exact,
+        (true, false) => Bound::AtLeast,
+        (false, true) => Bound::AtMost,
+        (false, false) => Bound::Approximate,
+    }
 }
 
 /// A terminal state.
@@ -217,5 +250,46 @@ impl PartialEq<TerminalState> for f32 {
 impl From<TerminalState> for f32 {
     fn from(value: TerminalState) -> Self {
         value.value()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use Bound::*;
+
+    #[test]
+    fn combine_bound_covers_all_outcomes() {
+        // (is_maximizing, cut, best, widened) => expected
+        let cases = [
+            // Maximizer: the best child bounds the value from below,
+            // a cutoff or a widening child leaves the upper side open.
+            (true, false, Exact, false, Exact),
+            (true, false, AtLeast, false, Exact),
+            (true, false, AtMost, false, AtMost),
+            (true, false, Approximate, false, AtMost),
+            (true, true, Exact, false, AtLeast),
+            (true, false, Exact, true, AtLeast),
+            (true, true, AtLeast, true, AtLeast),
+            (true, true, AtMost, false, Approximate),
+            (true, false, Approximate, true, Approximate),
+            // Minimizer: mirrored.
+            (false, false, Exact, false, Exact),
+            (false, false, AtMost, false, Exact),
+            (false, false, AtLeast, false, AtLeast),
+            (false, false, Approximate, false, AtLeast),
+            (false, true, Exact, false, AtMost),
+            (false, false, Exact, true, AtMost),
+            (false, true, AtMost, true, AtMost),
+            (false, true, AtLeast, false, Approximate),
+            (false, false, Approximate, true, Approximate),
+        ];
+        for (is_maximizing, cut, best, widened, expected) in cases {
+            assert_eq!(
+                combine_bound(is_maximizing, cut, best, widened),
+                expected,
+                "max={is_maximizing} cut={cut} best={best:?} widened={widened}"
+            );
+        }
     }
 }

@@ -3,7 +3,7 @@ use crate::action_iterator::ActionIterator;
 use crate::conflict::{Conflict, Turn};
 use crate::party::{Participant, Party};
 use crate::utility_value::get_utility;
-use crate::value::{Bound, Cutoff, TerminalState, Value};
+use crate::value::{combine_bound, Bound, Cutoff, TerminalState, Value};
 use log::trace;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
@@ -103,23 +103,23 @@ impl Solver {
             // after the node expansion step.
             //
             // A cutoff leaves the remaining children unexplored, so the value
-            // is only a bound: a maximizer could still find more, a minimizer less.
+            // is at best a bound: a maximizer could still find more, a minimizer less.
             let continue_expansion = if node.is_maximizing && node.value.is_beta_cutoff() {
                 log_beta_cutoff(&node);
                 pruning_cuts += 1;
-                node.bound = Bound::AtLeast;
+                node.bound = node.finalized_bound(true);
                 nodes[node.id].bound = node.bound;
                 false
             } else if !node.is_maximizing && node.value.is_alpha_cutoff() {
                 log_alpha_cutoff(&node);
                 pruning_cuts += 1;
-                node.bound = Bound::AtMost;
+                node.bound = node.finalized_bound(true);
                 nodes[node.id].bound = node.bound;
                 false
             } else if !node.is_maximizing && node.value.is_negative() {
                 log_minimizer_detected_defeat(&node);
                 pruning_cuts += 1;
-                node.bound = Bound::AtMost;
+                node.bound = node.finalized_bound(true);
                 nodes[node.id].bound = node.bound;
                 false
             } else if node.depth == max_depth {
@@ -145,6 +145,7 @@ impl Solver {
                 ExpansionResult::Exhausted(Exhaustion { mut node }) => {
                     let value = if (*node.value).is_finite() {
                         log_node_fully_explored(&node, &nodes);
+                        node.bound = node.finalized_bound(false);
                         *node.value
                     } else {
                         // If this is a terminal node we either have a winner or loser.
@@ -450,7 +451,10 @@ impl Solver {
                 if child_value.value > *parent_node.value {
                     *parent_node.value = child_value.value;
                     parent_node.best_child = Some(child_node.id);
+                    parent_node.best_bound = child_node.bound;
                 }
+                parent_node.widened |=
+                    matches!(child_node.bound, Bound::AtLeast | Bound::Approximate);
 
                 if parent_node.value.is_beta_cutoff() {
                     // beta-cutoff
@@ -463,7 +467,10 @@ impl Solver {
                 if child_value.value < *parent_node.value {
                     *parent_node.value = child_value.value;
                     parent_node.best_child = Some(child_node.id);
+                    parent_node.best_bound = child_node.bound;
                 }
+                parent_node.widened |=
+                    matches!(child_node.bound, Bound::AtMost | Bound::Approximate);
 
                 if parent_node.value.is_alpha_cutoff() {
                     // alpha-cutoff
@@ -629,8 +636,13 @@ struct Node {
     /// The utility value of this node. Only meaningful if this is
     /// a terminal node (i.e. win or loss for either side).
     pub value: Value,
-    /// Whether [`value`](Node::value) is exact or a bound due to a cutoff.
+    /// Whether [`value`](Node::value) is exact or only a bound because pruning
+    /// cut this node or a node in its best line short. Set when the node is finalized.
     pub bound: Bound,
+    /// The bound of [`best_child`](Node::best_child).
+    pub best_bound: Bound,
+    /// Whether any explored child may be better for this node than its value says.
+    pub widened: bool,
     /// The ID of the child that optimized the value, if any. Could be [`None`]
     /// if this node itself is a terminal node.
     pub best_child: Option<usize>,
@@ -661,6 +673,8 @@ impl Node {
                 TerminalState::Heuristic(f32::INFINITY)
             }),
             bound: Bound::Exact,
+            best_bound: Bound::Exact,
+            widened: false,
             best_child: None,
             action: None,
             state: conflict,
@@ -706,6 +720,8 @@ impl Node {
                     .with_value(TerminalState::Heuristic(f32::INFINITY))
             },
             bound: Bound::Exact,
+            best_bound: Bound::Exact,
+            widened: false,
             best_child: None,
             depth: parent.depth + 1,
             turn: Some(turn),
@@ -713,6 +729,14 @@ impl Node {
             action_iter: None,
             state,
         }
+    }
+
+    /// Derives the bound of this node's value from its explored children.
+    ///
+    /// ## Arguments
+    /// * `cut` - Whether the node stopped expanding at a cutoff.
+    fn finalized_bound(&self, cut: bool) -> Bound {
+        combine_bound(self.is_maximizing, cut, self.best_bound, self.widened)
     }
 }
 
@@ -834,6 +858,7 @@ fn log_finish_iddfs(depth: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::action::Action;
     use crate::party_member::PartyMember;
     use crate::weapon::{Fists, Stick, Weapon};
 
@@ -969,6 +994,50 @@ mod tests {
             .alternatives
             .iter()
             .any(|a| a.bound == Bound::AtMost && a.score == TerminalState::Defeat(-20.0)));
+        let punch_ziuon = e
+            .alternatives
+            .iter()
+            .find(|a| matches!(&a.action, AppliedAction::Targeted(t) if is_weapon_attack(t, 1, 0)))
+            .expect("Punching Ziuon is an alternative");
+        assert_eq!(punch_ziuon.bound, Bound::AtMost);
+        assert_eq!(punch_ziuon.score, TerminalState::Defeat(-20.0));
+    }
+
+    #[test]
+    fn bounds_propagate_through_fully_explored_nodes() {
+        // The hero cannot win: every round-2 hero move is cut off at Molphige's lethal
+        // reply (AtMost). Ziuon's round-1 hit leads to a maximizing node that explores
+        // all of those moves without a cutoff itself, so its value is AtMost too.
+        let conflict = Conflict::new(
+            build_default_hero_party(false, 30.0, 6),
+            build_complex_villain_party(false, 15.0),
+        );
+        let solution = Solver::engage(&conflict, SolverStrategy::DepthLimited(100));
+        let e = &solution.timeline[2];
+        assert_eq!(
+            e.actor,
+            Participant {
+                party_id: 1,
+                member_id: 0
+            }
+        );
+        assert_eq!(e.score, TerminalState::Defeat(-30.0));
+        assert_eq!(e.bound, Bound::AtMost);
+    }
+
+    fn is_weapon_attack(action: &TargetedAction, party_id: usize, member_id: usize) -> bool {
+        let Action::SimpleAttack(attack) = &action.action;
+        attack.weapon.is_some()
+            && action.source
+                == Participant {
+                    party_id: 0,
+                    member_id: 0,
+                }
+            && action.target
+                == Participant {
+                    party_id,
+                    member_id,
+                }
     }
 
     #[test]
