@@ -24,7 +24,7 @@ That is indeed what happens. _Ziuon_ trades one blow, takes a haymaker in return
 round 2, sounds the retreat. With nobody left to act in that round, there is no parting shot.
 The lines marked _tactician_ explain each choice: what the acting side expects, and the best
 alternatives it passed up, with their scores from the initiator's point of view
-(`≤`/`≥` mark bounds that alpha-beta pruning left open).
+(`≤`/`≥` mark bounds that alpha-beta pruning left open; `≈` marks a score whose true value could lie on either side of the number).
 
 ```
 ⚔  Brull stands against Ziuon and Molphige.
@@ -67,9 +67,9 @@ the tactician notes.
 
 ## Rules of ~~Engagement~~ the Game
 
-- [x] Two factions are fighting each other and take turns in making moves.
-- Within each faction, a party of one or more participants
-  is allowed to make a move. Such an action can be,
+- [x] Two factions are fighting each other in rounds. In every round each combatant acts once,
+  in initiative order by speed (fastest first; ties: the initiating party first, then the lower member id).
+- On their turn, each combatant picks one action. Such an action can be,
   - [x] Attacking a single opponent,
   - [ ] Attacking a group of opponents (area effects),
   - [ ] Applying an effect to a party member,
@@ -87,7 +87,7 @@ As for actions,
 ## Things to do
 
 - [x] Regular minimax ([`src/solver.rs`](src/solver.rs)).
-- [x] Multiple turns per party ([`src/action_iterator.rs`](src/action_iterator.rs)).
+- [x] Rounds with speed-ordered initiative, one combatant per turn ([`src/action_iterator.rs`](src/action_iterator.rs)).
 - [x] Implement Alpha-Beta pruning ([`src/value.rs`](src/value.rs)).
 - [x] Implement Iterative Deepening.
 - [ ] Implement A*-like heuristics.

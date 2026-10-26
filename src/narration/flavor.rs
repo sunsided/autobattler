@@ -70,6 +70,15 @@ pub(crate) fn outro(
     let hold = if heroes.len() > 1 { "hold" } else { "holds" };
     let heroes = join_names(heroes);
     let villains = join_names(villains);
+    if rounds == 0 {
+        return match outcome {
+            OutcomeType::Win(_) => format!("🏁 Victory for {heroes} without a blow struck."),
+            OutcomeType::Lose(_) => format!("🏁 {heroes} fell before the fight began."),
+            OutcomeType::Remain(_) => format!("🏁 {villains} fled before the fight began."),
+            OutcomeType::Retreat(_) => format!("🏁 {heroes} left before the fight began."),
+            OutcomeType::Unknown(_) => "🏁 Nobody could act — the fight never began.".to_string(),
+        };
+    }
     let n = format!("{} round{}", rounds, if rounds == 1 { "" } else { "s" });
     match outcome {
         OutcomeType::Win(_) => format!("🏁 Victory for {heroes} after {n}."),
@@ -196,6 +205,31 @@ mod tests {
         assert_eq!(
             outro(&OutcomeType::Unknown(0.0), &["A"], &["B"], 1),
             "🏁 Undecided after 1 round — the tactician could not see further."
+        );
+    }
+
+    #[test]
+    fn outro_zero_rounds() {
+        let (h, v) = (&["Brull"][..], &["Z"][..]);
+        assert_eq!(
+            outro(&OutcomeType::Win(1.0), h, v, 0),
+            "🏁 Victory for Brull without a blow struck."
+        );
+        assert_eq!(
+            outro(&OutcomeType::Lose(-1.0), h, v, 0),
+            "🏁 Brull fell before the fight began."
+        );
+        assert_eq!(
+            outro(&OutcomeType::Remain(0.0), h, v, 0),
+            "🏁 Z fled before the fight began."
+        );
+        assert_eq!(
+            outro(&OutcomeType::Retreat(0.0), h, v, 0),
+            "🏁 Brull left before the fight began."
+        );
+        assert_eq!(
+            outro(&OutcomeType::Unknown(0.0), h, v, 0),
+            "🏁 Nobody could act — the fight never began."
         );
     }
 }

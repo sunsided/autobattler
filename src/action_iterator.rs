@@ -46,7 +46,7 @@ struct ActionTargetIterator {
 impl ActionIterator {
     /// Creates a new iterator selecting all current party members,
     /// targeting all enemy party members.
-    #[allow(dead_code)] // The solver enumerates one combatant per turn via `new_in`.
+    #[cfg(test)]
     pub fn new(current: Party, opponent: Party) -> Self {
         let range = 0..current.len();
         Self::new_in(current, opponent, range)
