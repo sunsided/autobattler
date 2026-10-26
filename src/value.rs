@@ -12,6 +12,20 @@ pub enum Cutoff {
     Beta,
 }
 
+/// How exact a search score is.
+///
+/// Alpha-beta pruning stops exploring a node as soon as its value can no longer
+/// change the decision above it; the value reached by then is only a bound.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum Bound {
+    /// The node was fully explored (or evaluated); the score is exact.
+    Exact,
+    /// The exploration was cut short; the true score is at most this value.
+    AtMost,
+    /// The exploration was cut short; the true score is at least this value.
+    AtLeast,
+}
+
 /// A terminal state.
 #[derive(Debug, Copy, Clone)]
 pub enum TerminalState {

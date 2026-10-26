@@ -3,8 +3,9 @@ use crate::action_iterator::ActionIterator;
 use crate::conflict::{Conflict, Turn};
 use crate::party::{Participant, Party};
 use crate::utility_value::get_utility;
-use crate::value::{Cutoff, TerminalState, Value};
+use crate::value::{Bound, Cutoff, TerminalState, Value};
 use log::trace;
+use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::time::{Duration, Instant};
 
@@ -100,17 +101,26 @@ impl Solver {
             // Note that we can only know if a state is terminal once we have
             // fully expanded it. This information is available further below,
             // after the node expansion step.
+            //
+            // A cutoff leaves the remaining children unexplored, so the value
+            // is only a bound: a maximizer could still find more, a minimizer less.
             let continue_expansion = if node.is_maximizing && node.value.is_beta_cutoff() {
                 log_beta_cutoff(&node);
                 pruning_cuts += 1;
+                node.bound = Bound::AtLeast;
+                nodes[node.id].bound = node.bound;
                 false
             } else if !node.is_maximizing && node.value.is_alpha_cutoff() {
                 log_alpha_cutoff(&node);
                 pruning_cuts += 1;
+                node.bound = Bound::AtMost;
+                nodes[node.id].bound = node.bound;
                 false
             } else if !node.is_maximizing && node.value.is_negative() {
                 log_minimizer_detected_defeat(&node);
                 pruning_cuts += 1;
+                node.bound = Bound::AtMost;
+                nodes[node.id].bound = node.bound;
                 false
             } else if node.depth == max_depth {
                 *node.value = get_utility(&node.state);
@@ -197,26 +207,16 @@ impl Solver {
             return ExpansionResult::new_exhaustion(node);
         };
 
+        // If we visit this node for the first time, create the iterator.
+        // On all subsequent visits we continue from the last-known state.
+        if node.action_iter.is_none() {
+            node.action_iter = Some(Self::actions_for(&node.state, &turn));
+        }
+
         // Select the party of the acting combatant and the opponent.
         let actor_is_initiator = turn.actor.party_id == node.state.initiator.id;
         debug_assert_eq!(actor_is_initiator, node.is_maximizing);
-        let (current, opponent) = if actor_is_initiator {
-            (&node.state.initiator, &node.state.opponent)
-        } else {
-            (&node.state.opponent, &node.state.initiator)
-        };
-
-        // If we visit this node for the first time, create the iterator.
-        // On all subsequent visits we continue from the last-known state.
-        // Only the acting combatant is enumerated; member IDs equal their indices.
-        if node.action_iter.is_none() {
-            let member_id = turn.actor.member_id;
-            node.action_iter = Some(ActionIterator::new_in(
-                current.clone(),
-                opponent.clone(),
-                member_id..member_id + 1,
-            ));
-        }
+        let (current, opponent) = Self::parties_of(&node.state, &turn);
 
         let source_party_id = current.id;
 
@@ -302,6 +302,29 @@ impl Solver {
         ExpansionResult::new_exhaustion(node)
     }
 
+    /// Splits the parties of `state` into the one of the acting combatant and its opponent.
+    fn parties_of<'a>(state: &'a Conflict, turn: &Turn) -> (&'a Party, &'a Party) {
+        if turn.actor.party_id == state.initiator.id {
+            (&state.initiator, &state.opponent)
+        } else {
+            (&state.opponent, &state.initiator)
+        }
+    }
+
+    /// Creates the iterator over all actions of the combatant acting in `turn`.
+    ///
+    /// Only the acting combatant is enumerated; member IDs equal their indices.
+    fn actions_for(state: &Conflict, turn: &Turn) -> ActionIterator {
+        let (current, opponent) = Self::parties_of(state, turn);
+        let member_id = turn.actor.member_id;
+        ActionIterator::new_in(current.clone(), opponent.clone(), member_id..member_id + 1)
+    }
+
+    /// Counts the actions available to the combatant acting in `turn`.
+    fn legal_moves(state: &Conflict, turn: &Turn) -> usize {
+        Self::actions_for(state, turn).count()
+    }
+
     /// Builds the child state from the (possibly updated) acting and opposing parties,
     /// keeping the round and slot of the parent state.
     ///
@@ -358,6 +381,30 @@ impl Solver {
         while let Some(id) = next {
             let node = &nodes[id];
             let turn = node.turn.as_ref().expect("Only the root node has no turn");
+            let parent_id = node.parent_id.expect("Only the root node has no parent");
+
+            // All other explored moves of the same actor, best first from its perspective.
+            let mut alternatives: Vec<Alternative> = nodes
+                .iter()
+                .filter(|n| n.parent_id == Some(parent_id) && n.id != node.id)
+                .map(|n| Alternative {
+                    action: n.action.clone().expect("Only the root node has no action"),
+                    score: *n.value,
+                    bound: n.bound,
+                })
+                .collect();
+            let actor_is_initiator = turn.actor.party_id == nodes[0].state.initiator.id;
+            alternatives.sort_by(|a, b| {
+                let ordering = a.score.partial_cmp(&b.score).unwrap_or(Ordering::Equal);
+                if actor_is_initiator {
+                    ordering.reverse()
+                } else {
+                    ordering
+                }
+            });
+            let unexamined =
+                Self::legal_moves(&nodes[parent_id].state, turn) - (alternatives.len() + 1);
+
             stack.push(Event {
                 round: turn.round,
                 slot: turn.slot,
@@ -368,6 +415,10 @@ impl Solver {
                     .expect("Only the root node has no action"),
                 state: node.state.clone(),
                 depth: node.depth,
+                score: *node.value,
+                bound: node.bound,
+                alternatives,
+                unexamined,
             });
             next = node.best_child;
         }
@@ -482,6 +533,31 @@ pub struct Event {
     pub depth: usize,
     /// The state of the conflict after the action took place.
     pub state: Conflict,
+    /// The search score of the action, from the initiator's perspective.
+    #[allow(dead_code)] // Only read by tests until the narration uses it.
+    pub score: TerminalState,
+    /// Whether [`score`](Event::score) is exact or a bound due to pruning.
+    #[allow(dead_code)] // Only read by tests until the narration uses it.
+    pub bound: Bound,
+    /// The other explored actions of the same combatant, best first from its perspective.
+    #[allow(dead_code)] // Only read by tests until the narration uses it.
+    pub alternatives: Vec<Alternative>,
+    /// The number of legal actions that were never generated due to pruning.
+    #[allow(dead_code)] // Only read by tests until the narration uses it.
+    pub unexamined: usize,
+}
+
+/// An action the acting combatant could have taken instead.
+#[derive(Debug, Clone)]
+pub struct Alternative {
+    /// The action.
+    #[allow(dead_code)] // Not read until the narration uses it.
+    pub action: AppliedAction,
+    /// The search score of the action, from the initiator's perspective.
+    pub score: TerminalState,
+    /// Whether [`score`](Alternative::score) is exact or a bound due to pruning.
+    #[allow(dead_code)] // Only read by tests until the narration uses it.
+    pub bound: Bound,
 }
 
 /// A tree expansion outcome.
@@ -553,6 +629,8 @@ struct Node {
     /// The utility value of this node. Only meaningful if this is
     /// a terminal node (i.e. win or loss for either side).
     pub value: Value,
+    /// Whether [`value`](Node::value) is exact or a bound due to a cutoff.
+    pub bound: Bound,
     /// The ID of the child that optimized the value, if any. Could be [`None`]
     /// if this node itself is a terminal node.
     pub best_child: Option<usize>,
@@ -582,6 +660,7 @@ impl Node {
             } else {
                 TerminalState::Heuristic(f32::INFINITY)
             }),
+            bound: Bound::Exact,
             best_child: None,
             action: None,
             state: conflict,
@@ -626,6 +705,7 @@ impl Node {
                     .value
                     .with_value(TerminalState::Heuristic(f32::INFINITY))
             },
+            bound: Bound::Exact,
             best_child: None,
             depth: parent.depth + 1,
             turn: Some(turn),
@@ -771,10 +851,7 @@ mod tests {
 
     #[test]
     fn complex_fight_works() {
-        let heroes = build_default_hero_party(true, 20.0, 6); // 👈 an opponent exists that does equal damage
-        let villains = build_complex_villain_party(false, 10.0);
-
-        let conflict = Conflict::new(heroes, villains);
+        let conflict = complex_works_conflict();
 
         // In this version, the enemy is not allowed to flee. The hero kills
         // Molphige first, then trades blows with Ziuon.
@@ -785,10 +862,7 @@ mod tests {
 
     #[test]
     fn complex_fight_opponent_flees() {
-        let heroes = build_default_hero_party(true, 20.0, 6); // 👈 an opponent exists that does equal damage
-        let villains = build_complex_villain_party(true, 10.0); // 👈 equal health to the hero damage
-
-        let conflict = Conflict::new(heroes, villains);
+        let conflict = complex_flees_conflict();
 
         // Ziuon takes one swing, then flees from the last slot of round two,
         // which gives the hero no parting shot: 15 health * 0.1.
@@ -875,6 +949,76 @@ mod tests {
         let solution = Solver::engage(&conflict, SolverStrategy::IterativeDeepening(10));
         assert!(solution.timeline.is_empty());
         assert!(matches!(solution.outcome, OutcomeType::Win(_)));
+    }
+
+    #[test]
+    fn principal_variation_is_exact_when_fight_is_won() {
+        let solution = Solver::engage(&complex_works_conflict(), SolverStrategy::DepthLimited(100));
+        assert!(solution.timeline.iter().all(|e| e.bound == Bound::Exact));
+        assert_eq!(solution.timeline[0].score, TerminalState::Win(10.0));
+    }
+
+    #[test]
+    fn first_move_lists_all_other_options() {
+        // Brull: fists/stare x Ziuon/Molphige + flee = 5 legal moves.
+        let e = &Solver::engage(&complex_works_conflict(), SolverStrategy::DepthLimited(100))
+            .timeline[0];
+        assert_eq!(e.alternatives.len() + e.unexamined, 4);
+        // Punching Ziuon lets Molphige punch back: cut off as soon as the defeat is seen.
+        assert!(e
+            .alternatives
+            .iter()
+            .any(|a| a.bound == Bound::AtMost && a.score == TerminalState::Defeat(-20.0)));
+    }
+
+    #[test]
+    fn alternatives_are_ranked_from_the_movers_perspective() {
+        for conflict in [complex_works_conflict(), complex_flees_conflict()] {
+            let solution = Solver::engage(&conflict, SolverStrategy::DepthLimited(100));
+            for e in &solution.timeline {
+                let hero = e.actor.party_id == conflict.initiator.id;
+                for pair in e.alternatives.windows(2) {
+                    if hero {
+                        assert!(pair[0].score >= pair[1].score)
+                    } else {
+                        assert!(pair[0].score <= pair[1].score)
+                    }
+                }
+                for a in &e.alternatives {
+                    if hero {
+                        assert!(a.score <= e.score)
+                    } else {
+                        assert!(a.score >= e.score)
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn forced_defeat_reports_bounds_and_unexamined_moves() {
+        // Every hero move is answered by a lethal punch; the minimizer stops at the first
+        // defeat it sees, so the chosen line is itself a bound.
+        let conflict = Conflict::new(
+            build_default_hero_party(false, 20.0, 6),
+            build_complex_villain_party(true, 15.0),
+        );
+        let solution = Solver::engage(&conflict, SolverStrategy::DepthLimited(100));
+        assert_eq!(solution.timeline[0].bound, Bound::AtMost);
+        // Molphige had punch, stare and flee; only the punch was generated.
+        assert_eq!(solution.timeline[1].unexamined, 2);
+    }
+
+    fn complex_works_conflict() -> Conflict {
+        let heroes = build_default_hero_party(true, 20.0, 6); // 👈 an opponent exists that does equal damage
+        let villains = build_complex_villain_party(false, 10.0);
+        Conflict::new(heroes, villains)
+    }
+
+    fn complex_flees_conflict() -> Conflict {
+        let heroes = build_default_hero_party(true, 20.0, 6); // 👈 an opponent exists that does equal damage
+        let villains = build_complex_villain_party(true, 10.0); // 👈 equal health to the hero damage
+        Conflict::new(heroes, villains)
     }
 
     fn build_default_hero_party(can_retreat: bool, health: f32, speed: u32) -> Party {
