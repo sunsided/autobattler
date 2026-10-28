@@ -1,7 +1,7 @@
 //! Turns a solved conflict into a round-based combat log.
 
 mod flavor;
-mod panel;
+pub(crate) mod panel;
 pub mod playback;
 mod reasoning;
 
@@ -48,7 +48,6 @@ pub struct Beat {
 /// These are the intro lines plus, for every action beat of an event below
 /// `shown`, its first line and, when `explain` is set, the remaining ones.
 /// Empty lines are dropped.
-#[allow(dead_code)]
 pub fn log_lines(beats: &[Beat], shown: usize, explain: bool) -> Vec<String> {
     let intro = beats.iter().filter(|b| b.kind == BeatKind::Intro);
     let actions = beats

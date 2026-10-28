@@ -1,0 +1,720 @@
+//! Draws one frame of the standoff from the playback state and the fight.
+//!
+//! Layout at 80×24 and larger, top to bottom: a header, the initiative bar,
+//! the standoff (heroes left, villains right, the current action in a center
+//! band), the log and the key bar.
+
+use crate::action::{Action, AppliedAction};
+use crate::conflict::Conflict;
+use crate::narration::panel::{filled_cells, morale_tag};
+use crate::narration::{log_lines, Beat, BeatKind};
+use crate::party::{Participant, Party};
+use crate::solver::{Event, Outcome};
+use crate::tui::app::App;
+use crate::weapon::Weapon;
+use ratatui::layout::{Alignment, Constraint, Layout, Rect};
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Paragraph};
+use ratatui::Frame;
+
+const MIN_WIDTH: u16 = 80;
+const MIN_HEIGHT: u16 = 24;
+const TOO_SMALL: &str = "terminal too small (needs 80×24)";
+const KEY_BAR: &str = "space pause · ← → step · +/- speed · t tactician · q quit";
+const PARTING_PREFIX: &str = "parting blows ▸ ";
+/// Cells in a card's health bar.
+const BAR_CELLS: usize = 10;
+/// Width of the center band that holds the arrow and the flight markers.
+const BAND: u16 = 14;
+/// The log's minimum height: six lines plus its borders.
+const MIN_LOG: u16 = 8;
+const HERO: Color = Color::Blue;
+const VILLAIN: Color = Color::Magenta;
+
+/// Everything about a solved fight the view needs, besides the playback state.
+#[allow(dead_code)]
+pub struct FightView<'a> {
+    /// The state before the first event.
+    pub start: &'a Conflict,
+    /// The solved fight.
+    pub outcome: &'a Outcome,
+    /// `names[party_id][member_id]`.
+    pub names: &'a [Vec<String>],
+    /// The narration, made with tactician notes on and colors off.
+    pub beats: &'a [Beat],
+    /// The scenario label for the header.
+    pub scenario: String,
+    /// The seed the fight was built from.
+    pub seed: u64,
+}
+
+impl FightView<'_> {
+    /// The state after `shown` events.
+    fn state(&self, shown: usize) -> &Conflict {
+        shown
+            .checked_sub(1)
+            .map_or(self.start, |i| &self.outcome.timeline[i].state)
+    }
+
+    /// The event shown last, if any.
+    fn current(&self, shown: usize) -> Option<&Event> {
+        shown.checked_sub(1).map(|i| &self.outcome.timeline[i])
+    }
+
+    /// The state at the start of the round of the event shown last.
+    fn round_start(&self, shown: usize) -> &Conflict {
+        let Some(current) = self.current(shown) else {
+            return self.start;
+        };
+        let first = self
+            .outcome
+            .timeline
+            .iter()
+            .position(|e| e.round == current.round)
+            .unwrap_or(0);
+        self.state(first)
+    }
+
+    fn name(&self, p: &Participant) -> &str {
+        &self.names[p.party_id][p.member_id]
+    }
+
+    fn is_hero(&self, p: &Participant) -> bool {
+        p.party_id == self.start.initiator.id
+    }
+
+    fn color(&self, p: &Participant) -> Color {
+        if self.is_hero(p) {
+            HERO
+        } else {
+            VILLAIN
+        }
+    }
+}
+
+/// Draws one frame for the playback position of `app`.
+#[allow(dead_code)]
+pub fn draw(frame: &mut Frame, app: &App, fight: &FightView) {
+    let area = frame.area();
+    if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
+        let [_, middle, _] = Layout::vertical([
+            Constraint::Fill(1),
+            Constraint::Length(1),
+            Constraint::Fill(1),
+        ])
+        .areas(area);
+        frame.render_widget(
+            Paragraph::new(TOO_SMALL).alignment(Alignment::Center),
+            middle,
+        );
+        return;
+    }
+
+    let fighters = fight
+        .start
+        .initiator
+        .members
+        .len()
+        .max(fight.start.opponent.members.len()) as u16;
+    let available = area.height - 3 - MIN_LOG;
+    let stride = card_stride(fighters, available - 2);
+    let standoff_height = (card_rows(fighters, stride) + 2).min(available);
+    let [header, initiative, standoff, log, keys] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(standoff_height),
+        Constraint::Min(MIN_LOG),
+        Constraint::Length(1),
+    ])
+    .areas(area);
+
+    draw_header(frame, header, app, fight);
+    frame.render_widget(
+        Paragraph::new(initiative_line(app, fight, initiative.width)),
+        initiative,
+    );
+    draw_standoff(frame, standoff, stride, app, fight);
+    draw_log(frame, log, app, fight);
+    frame.render_widget(
+        Paragraph::new(KEY_BAR).style(Style::new().add_modifier(Modifier::DIM)),
+        keys,
+    );
+}
+
+/// Rows between the tops of two cards: a blank line between cards if they fit.
+fn card_stride(fighters: u16, height: u16) -> u16 {
+    if card_rows(fighters, 3) <= height {
+        3
+    } else {
+        2
+    }
+}
+
+fn card_rows(fighters: u16, stride: u16) -> u16 {
+    (fighters * stride).saturating_sub(stride - 2)
+}
+
+fn draw_header(frame: &mut Frame, area: Rect, app: &App, fight: &FightView) {
+    let round = fight
+        .current(app.shown())
+        .map_or(fight.start.round, |e| e.round);
+    let state = if app.playing() { "▶" } else { "⏸" };
+    let left = format!(
+        "Round {round} · action {}/{} · {state} {}×",
+        app.shown(),
+        app.len(),
+        app.speed()
+    );
+    let right = format!("{} · seed {}", fight.scenario, fight.seed);
+    let bold = Style::new().add_modifier(Modifier::BOLD);
+    frame.render_widget(Paragraph::new(left).style(bold), area);
+    frame.render_widget(Paragraph::new(right).alignment(Alignment::Right), area);
+}
+
+/// The members able to act in the shown round, in initiative order.
+///
+/// If the entries don't fit `width` joined by ` ▸ `, they are joined by a
+/// bare `▸`, and if that is still too wide the bar ends in `…`.
+fn initiative_line<'a>(app: &App, fight: &'a FightView, width: u16) -> Line<'a> {
+    let shown = app.shown();
+    let state = fight.state(shown);
+    let round_start = fight.round_start(shown);
+    let actor = fight.current(shown).map(|e| &e.actor);
+
+    let mut entries = Vec::new();
+    for p in state.initiative_order() {
+        let now = state.targeted_member(&p);
+        if !round_start.targeted_member(&p).can_act() || now.fled {
+            continue;
+        }
+        let mut style = Style::new().fg(fight.color(&p));
+        if now.is_dead() {
+            style = style.add_modifier(Modifier::DIM | Modifier::CROSSED_OUT);
+        }
+        if actor == Some(&p) {
+            style = style.add_modifier(Modifier::BOLD | Modifier::REVERSED);
+        }
+        entries.push(Span::styled(
+            format!("{}({})", fight.name(&p), now.speed),
+            style,
+        ));
+    }
+
+    let prefix = state.parting.is_some().then(|| {
+        Span::styled(
+            PARTING_PREFIX,
+            Style::new().fg(Color::Red).add_modifier(Modifier::BOLD),
+        )
+    });
+    let join = |separator: &'static str| {
+        let mut spans: Vec<Span> = prefix.iter().cloned().collect();
+        for (i, entry) in entries.iter().enumerate() {
+            if i > 0 {
+                spans.push(Span::raw(separator));
+            }
+            spans.push(entry.clone());
+        }
+        Line::from(spans)
+    };
+    let width = usize::from(width);
+    let line = join(" ▸ ");
+    if line.width() <= width {
+        return line;
+    }
+    let mut line = join("▸");
+    while line.width() > width.saturating_sub(1) && !line.spans.is_empty() {
+        line.spans.pop();
+    }
+    if line.spans.last().is_some_and(|span| span.content == "▸") {
+        line.spans.pop();
+    }
+    if line.width() < join("▸").width() {
+        line.spans.push(Span::raw("…"));
+    }
+    line
+}
+
+fn draw_standoff(frame: &mut Frame, area: Rect, stride: u16, app: &App, fight: &FightView) {
+    let block = Block::bordered()
+        .title(Line::from(" heroes ").style(Style::new().fg(HERO)))
+        .title(
+            Line::from(" villains ")
+                .style(Style::new().fg(VILLAIN))
+                .right_aligned(),
+        );
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    // The band holds the arrow on card line 1; card line 2 may run into it,
+    // since nothing is drawn there on line-2 rows.
+    let band_x = inner.x + (inner.width - BAND) / 2;
+    let half = inner.width / 2 - 1;
+    let buffer = frame.buffer_mut();
+    let row = |member: usize| inner.y + member as u16 * stride;
+
+    let state = fight.state(app.shown());
+    for party in [&state.initiator, &state.opponent] {
+        let hero = party.id == fight.start.initiator.id;
+        let cards = party_cards(party, app, fight);
+        let width = cards.iter().map(|(l1, _)| l1.width()).max().unwrap_or(0) as u16;
+        for (i, (line1, line2)) in cards.iter().enumerate() {
+            let y = row(i);
+            if y >= inner.bottom() {
+                break;
+            }
+            if hero {
+                buffer.set_line(inner.x, y, line1, band_x - inner.x);
+            } else {
+                let x = inner.right().saturating_sub(width).max(band_x + BAND);
+                buffer.set_line(x, y, line1, inner.right() - x);
+            }
+            if y + 1 >= inner.bottom() {
+                break;
+            }
+            let w = (line2.width() as u16).min(half);
+            let x = if hero { inner.x } else { inner.right() - w };
+            buffer.set_line(x, y + 1, line2, w);
+        }
+    }
+
+    let Some(event) = fight.current(app.shown()) else {
+        return;
+    };
+    let style = Style::new()
+        .fg(fight.color(&event.actor))
+        .add_modifier(Modifier::BOLD);
+    let hero = fight.is_hero(&event.actor);
+    let (text, y, x) = match &event.action {
+        AppliedAction::Targeted(targeted) => {
+            let Action::SimpleAttack(attack) = &targeted.action;
+            let text = if hero {
+                format!("── {} ──▶", attack.damage)
+            } else {
+                format!("◀── {} ──", attack.damage)
+            };
+            let width = Line::from(text.as_str()).width() as u16;
+            let x = band_x + BAND.saturating_sub(width) / 2;
+            (text, row(targeted.target.member_id), x)
+        }
+        AppliedAction::Flee | AppliedAction::Retreat => {
+            let marker = if event.action == AppliedAction::Flee {
+                "↩"
+            } else {
+                "⚑"
+            };
+            let x = if hero { band_x + 1 } else { band_x + BAND - 2 };
+            (marker.to_string(), row(event.actor.member_id), x)
+        }
+    };
+    if y < inner.bottom() {
+        buffer.set_line(x, y, &Line::styled(text, style), BAND);
+    }
+}
+
+/// Builds the two card lines for every member of `party`, padded so that
+/// names and bars line up within the party.
+fn party_cards<'a>(party: &Party, app: &App, fight: &'a FightView) -> Vec<(Line<'a>, Line<'a>)> {
+    let name_width = fight.names[party.id]
+        .iter()
+        .map(|n| n.chars().count())
+        .max()
+        .unwrap_or(0);
+    let shown = app.shown();
+    let before = fight.state(shown.saturating_sub(1));
+    let current = fight.current(shown);
+    let start = fight
+        .start
+        .action_target(party.id)
+        .members
+        .iter()
+        .map(|m| m.health);
+    let max_width = start
+        .clone()
+        .map(|max| format!("{max}").chars().count())
+        .max()
+        .unwrap_or(0);
+
+    let mut cards: Vec<(Line, Line)> = party
+        .members
+        .iter()
+        .zip(start)
+        .map(|(member, max)| {
+            let p = Participant {
+                party_id: party.id,
+                member_id: member.id,
+            };
+            let color = fight.color(&p);
+            let mut name_style = Style::new().fg(color);
+            if current.is_some_and(|e| e.actor == p) {
+                name_style = name_style.add_modifier(Modifier::BOLD);
+            }
+            let mut line1 = vec![
+                Span::styled(format!("{:<name_width$}", fight.name(&p)), name_style),
+                Span::raw(" "),
+            ];
+            if member.is_dead() {
+                line1.push(Span::raw("✝ fallen"));
+            } else if member.fled {
+                line1.push(Span::raw("↩ fled"));
+            } else {
+                let filled = filled_cells(member.health, max, BAR_CELLS);
+                let hit = app.flashing()
+                    && current.is_some_and(
+                        |e| matches!(&e.action, AppliedAction::Targeted(t) if t.target == p),
+                    );
+                let lost = if hit {
+                    let was = before.targeted_member(&p).health;
+                    filled_cells(was, max, BAR_CELLS).saturating_sub(filled)
+                } else {
+                    0
+                };
+                line1.push(Span::styled("█".repeat(filled), Style::new().fg(color)));
+                line1.push(Span::styled("█".repeat(lost), Style::new().fg(Color::Red)));
+                line1.push(Span::styled(
+                    "░".repeat(BAR_CELLS - filled - lost),
+                    Style::new().fg(Color::DarkGray),
+                ));
+                line1.push(Span::raw(format!(
+                    " {:>max_width$}/{max}",
+                    format!("{}", member.health)
+                )));
+            }
+
+            let weapon = match member.weapon {
+                Weapon::Fists(_) => "fists",
+                Weapon::Stick(_) => "stick",
+            };
+            let mut stats = format!(
+                "{weapon} {} · speed {}",
+                member.weapon.damage(),
+                member.speed
+            );
+            if let Some(tag) = morale_tag(member.morale) {
+                stats.push_str(&format!(" · {tag}"));
+            }
+            let mut line1 = Line::from(line1);
+            let mut line2 = Line::from(stats);
+            if member.is_dead() {
+                line1 = line1.style(Style::new().add_modifier(Modifier::DIM));
+                line2 = line2.style(Style::new().add_modifier(Modifier::DIM));
+            }
+            (line1, line2)
+        })
+        .collect();
+
+    // Pad line 1 so right-aligned villain cards keep their names in a column.
+    let width = cards.iter().map(|(l1, _)| l1.width()).max().unwrap_or(0);
+    for (line1, _) in &mut cards {
+        let pad = width - line1.width();
+        line1.push_span(Span::raw(" ".repeat(pad)));
+    }
+    cards
+}
+
+fn draw_log(frame: &mut Frame, area: Rect, app: &App, fight: &FightView) {
+    let block = Block::bordered().title(" log ");
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let mut lines = log_lines(fight.beats, app.shown(), app.explain());
+    if app.finished() {
+        // An empty timeline's "Nothing happens." belongs to no event.
+        let closing = fight.beats.iter().filter(|b| match b.kind {
+            BeatKind::Action => b.event.is_none(),
+            BeatKind::Outro | BeatKind::Stats => true,
+            _ => false,
+        });
+        lines.extend(
+            closing
+                .flat_map(|b| b.lines.iter().cloned())
+                .filter(|line| !line.is_empty()),
+        );
+    }
+    let skip = lines.len().saturating_sub(inner.height as usize);
+    let lines: Vec<Line> = lines.into_iter().skip(skip).map(Line::from).collect();
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// Renders one frame and returns its cell symbols row by row, with trailing
+/// spaces trimmed.
+#[cfg(test)]
+fn render_to_text(app: &App, fight: &FightView, width: u16, height: u16) -> String {
+    use ratatui::backend::TestBackend;
+    use ratatui::buffer::CellWidth;
+    use ratatui::Terminal;
+
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("test terminal");
+    terminal
+        .draw(|frame| draw(frame, app, fight))
+        .expect("draw a frame");
+    let buffer = terminal.backend().buffer();
+    let mut text = String::new();
+    for row in buffer.content.chunks(width as usize) {
+        let mut line = String::new();
+        // Skip the cells hidden behind a wide symbol.
+        let mut hidden: u16 = 0;
+        for cell in row {
+            if hidden == 0 {
+                line.push_str(cell.symbol());
+            }
+            hidden = hidden.max(cell.symbol().cell_width()).saturating_sub(1);
+        }
+        text.push_str(line.trim_end());
+        text.push('\n');
+    }
+    text
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::conflict::Conflict;
+    use crate::narration::{BeatKind, NarrationOptions, Narrator};
+    use crate::roster::Roster;
+    use crate::scenario::{self, Setup};
+    use crate::solver::{Outcome, Solver, SolverStrategy, MAX_ROUNDS};
+    use crate::tui::app::{App, Key};
+
+    /// Owns everything a [`FightView`] borrows.
+    struct Fixture {
+        start: Conflict,
+        outcome: Outcome,
+        names: Vec<Vec<String>>,
+        beats: Vec<Beat>,
+        scenario: String,
+        seed: u64,
+    }
+
+    impl Fixture {
+        fn new(start: Conflict, names: Vec<Vec<String>>, depth: usize, scenario: &str) -> Self {
+            colored::control::set_override(false);
+            let seed = 7;
+            let outcome = Solver::play(
+                &start,
+                SolverStrategy::IterativeDeepening(depth),
+                MAX_ROUNDS,
+            );
+            let options = NarrationOptions {
+                explain: true,
+                seed: Some(seed),
+            };
+            let mut beats = Narrator::new(&names, options).narrate(&start, &outcome);
+            pin_search_duration(&mut beats);
+            Self {
+                start,
+                outcome,
+                names,
+                beats,
+                scenario: scenario.to_string(),
+                seed,
+            }
+        }
+
+        fn view(&self) -> FightView<'_> {
+            FightView {
+                start: &self.start,
+                outcome: &self.outcome,
+                names: &self.names,
+                beats: &self.beats,
+                scenario: self.scenario.clone(),
+                seed: self.seed,
+            }
+        }
+
+        /// An app paused at `shown`, with no flash.
+        fn app(&self, shown: usize, explain: bool) -> App {
+            let rounds = self.outcome.timeline.iter().map(|e| e.round).collect();
+            let mut app = App::new(rounds, explain);
+            for _ in 0..shown {
+                app.handle(Key::Forward);
+            }
+            app
+        }
+
+        fn render(&self, app: &App, width: u16, height: u16) -> String {
+            render_to_text(app, &self.view(), width, height)
+        }
+    }
+
+    /// Replaces the search duration in the stats line, which differs between
+    /// runs, with a fixed value. The evaluation counts are deterministic.
+    fn pin_search_duration(beats: &mut [Beat]) {
+        let stats = beats
+            .iter_mut()
+            .find(|b| b.kind == BeatKind::Stats)
+            .expect("a stats beat");
+        let line = &mut stats.lines[0];
+        let cut = line.rfind(", ").expect("a duration field");
+        line.replace_range(cut.., ", 1.5ms)");
+    }
+
+    fn names() -> Vec<Vec<String>> {
+        vec![
+            vec!["Brull".to_string()],
+            vec!["Ziuon".to_string(), "Molphige".to_string()],
+        ]
+    }
+
+    fn ambush() -> Fixture {
+        Fixture::new(scenario::default_conflict(), names(), 10, "ambush")
+    }
+
+    fn four_versus_four() -> Fixture {
+        let fight = scenario::build(
+            Setup::Custom {
+                heroes: 4,
+                villains: 4,
+            },
+            Roster::Archetypes,
+            7,
+        );
+        Fixture::new(fight.conflict, fight.names, 4, "custom 4v4")
+    }
+
+    #[track_caller]
+    fn assert_golden(actual: &str, expected: &str) {
+        assert!(
+            actual == expected,
+            "frame differs from golden\n--- actual ---\n{actual}--- expected ---\n{expected}"
+        );
+    }
+
+    #[test]
+    fn opening_frame() {
+        let f = ambush();
+        let app = App::new(f.outcome.timeline.iter().map(|e| e.round).collect(), true);
+        assert_golden(
+            &f.render(&app, 80, 24),
+            include_str!("golden/opening_frame.txt"),
+        );
+    }
+
+    #[test]
+    fn first_action_frame() {
+        let f = ambush();
+        let app = f.app(1, true);
+        assert!(!app.flashing());
+        assert_golden(
+            &f.render(&app, 80, 24),
+            include_str!("golden/first_action_frame.txt"),
+        );
+    }
+
+    #[test]
+    fn parting_pending_frame() {
+        let f = ambush();
+        assert!(f.outcome.timeline[1].state.parting.is_some());
+        let text = f.render(&f.app(2, true), 80, 24);
+        let initiative = text.lines().nth(1).unwrap();
+        assert!(initiative.starts_with("parting blows ▸ "), "{initiative}");
+        let ziuon = text.lines().find(|l| l.contains("Ziuon ")).unwrap();
+        assert!(ziuon.contains('↩'), "{ziuon}");
+        assert_golden(&text, include_str!("golden/parting_pending_frame.txt"));
+    }
+
+    #[test]
+    fn end_frame_with_and_without_tactician() {
+        let f = ambush();
+        for (explain, golden) in [
+            (true, include_str!("golden/end_frame.txt")),
+            (false, include_str!("golden/end_frame_no_tactician.txt")),
+        ] {
+            let app = f.app(3, explain);
+            assert!(app.finished());
+            let text = f.render(&app, 80, 24);
+            assert!(text.contains("✝ fallen"), "{text}");
+            assert!(text.contains("↩ fled"), "{text}");
+            assert!(text.contains("holds the field"), "{text}");
+            assert!(text.contains("evaluations"), "{text}");
+            assert_eq!(text.contains("↳ tactician"), explain, "{text}");
+            assert_golden(&text, golden);
+        }
+    }
+
+    #[test]
+    fn four_versus_four_frame() {
+        let f = four_versus_four();
+        let text = f.render(&f.app(1, true), 80, 24);
+        for name in f.names.iter().flatten() {
+            assert!(text.contains(name.as_str()), "{name} missing\n{text}");
+        }
+        let initiative = text.lines().nth(1).unwrap();
+        assert!(initiative.ends_with(')'), "clipped: {initiative}");
+        assert_golden(&text, include_str!("golden/four_versus_four_frame.txt"));
+    }
+
+    #[test]
+    fn too_small_frame() {
+        let f = ambush();
+        let text = f.render(&f.app(1, true), 60, 20);
+        assert!(text.contains("terminal too small (needs 80×24)"), "{text}");
+        assert_golden(&text, include_str!("golden/too_small_frame.txt"));
+    }
+
+    #[test]
+    fn no_ansi_in_cells() {
+        for f in [ambush(), four_versus_four()] {
+            for shown in 0..=f.outcome.timeline.len() {
+                for explain in [true, false] {
+                    let text = f.render(&f.app(shown, explain), 80, 24);
+                    assert!(!text.contains('\x1b'), "{text}");
+                    assert!(!text.contains("[0m"), "{text}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn key_bar_is_the_last_line() {
+        let f = ambush();
+        let text = f.render(&f.app(1, true), 80, 24);
+        assert_eq!(
+            text.lines().last().unwrap(),
+            "space pause · ← → step · +/- speed · t tactician · q quit"
+        );
+    }
+
+    #[test]
+    fn empty_timeline_says_nothing_happens_at_the_end() {
+        let mut start = scenario::default_conflict();
+        for member in start.opponent.members.iter_mut() {
+            member.health = 0.0;
+        }
+        let f = Fixture::new(start, names(), 10, "ambush");
+        let app = f.app(0, true);
+        assert!(app.finished());
+        let text = f.render(&app, 80, 24);
+        let nothing = text.find("Nothing happens.").expect(&text);
+        let stats = text.find("evaluations").expect(&text);
+        assert!(nothing < stats, "{text}");
+    }
+
+    #[test]
+    fn hit_flash_marks_lost_health() {
+        // Find an event whose target survives with a visible health bar.
+        let f = four_versus_four();
+        let hit = f.outcome.timeline.iter().position(|e| match &e.action {
+            AppliedAction::Targeted(t) => e.state.targeted_member(&t.target).on_field(),
+            _ => false,
+        });
+        let Some(hit) = hit else {
+            panic!("no surviving target in the 4v4 timeline");
+        };
+        let rounds: Vec<usize> = f.outcome.timeline.iter().map(|e| e.round).collect();
+        let still = f.app(hit + 1, true);
+        // Replay with ticks so the flash of the last event is still running.
+        let mut flashing = App::new(rounds, true);
+        while flashing.shown() < hit + 1 {
+            flashing.tick(std::time::Duration::from_millis(50));
+        }
+        assert!(flashing.flashing());
+        let full = |t: &str| t.matches('█').count();
+        let still_text = f.render(&still, 80, 24);
+        let flash_text = f.render(&flashing, 80, 24);
+        assert!(
+            full(&flash_text) > full(&still_text),
+            "{still_text}\n{flash_text}"
+        );
+    }
+}

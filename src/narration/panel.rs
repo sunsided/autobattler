@@ -10,13 +10,20 @@ const BAR_WIDTH: usize = 20;
 ///
 /// At least one cell is filled while `health > 0`.
 pub(crate) fn health_bar(health: f32, max: f32) -> String {
+    let filled = filled_cells(health, max, BAR_WIDTH);
+    format!("{}{}", "█".repeat(filled), "░".repeat(BAR_WIDTH - filled))
+}
+
+/// The number of filled cells in a health bar `width` cells wide.
+///
+/// At least one cell is filled while `health > 0`.
+pub(crate) fn filled_cells(health: f32, max: f32, width: usize) -> usize {
     let ratio = if max > 0.0 { health / max } else { 0.0 };
-    let mut filled =
-        ((ratio * BAR_WIDTH as f32).round() as i64).clamp(0, BAR_WIDTH as i64) as usize;
+    let mut filled = ((ratio * width as f32).round() as i64).clamp(0, width as i64) as usize;
     if health > 0.0 {
         filled = filled.max(1);
     }
-    format!("{}{}", "█".repeat(filled), "░".repeat(BAR_WIDTH - filled))
+    filled
 }
 
 /// Describes a morale worth showing; `Tactical` is the default and stays silent.
@@ -127,6 +134,14 @@ mod tests {
             assert_eq!(health_bar(h, m).chars().count(), 20);
         }
         assert!(health_bar(0.4, 20.0).starts_with('█'));
+    }
+
+    #[test]
+    fn filled_cells_scale_to_the_width() {
+        assert_eq!(filled_cells(20.0, 20.0, 10), 10);
+        assert_eq!(filled_cells(12.0, 20.0, 10), 6);
+        assert_eq!(filled_cells(0.4, 20.0, 10), 1);
+        assert_eq!(filled_cells(0.0, 20.0, 10), 0);
     }
 
     #[test]

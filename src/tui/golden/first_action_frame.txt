@@ -1,0 +1,24 @@
+Round 1 · action 1/3 · ⏸ 1×                                      ambush · seed 7
+Brull(6) ▸ Molphige(5) ▸ Ziuon(3)
+┌ heroes ──────────────────────────────────────────────────────────── villains ┐
+│Brull ██████████ 20/20                               Ziuon    ██████████ 15/15│
+│fists 10 · speed 6                                           stick 5 · speed 3│
+│                                                                              │
+│                                  ── 10 ──▶          Molphige ✝ fallen        │
+│                                                            fists 20 · speed 5│
+└──────────────────────────────────────────────────────────────────────────────┘
+┌ log ─────────────────────────────────────────────────────────────────────────┐
+│⚔  Brull stands against Ziuon and Molphige.                                   │
+│Brull jabs Molphige — 10 damage. Molphige is down!                            │
+│   ↳ tactician: expects they escape (2)                                       │
+│       alt: punch Ziuon    → defeat  (≤ -20)                                  │
+│       alt: glare at Ziuon → defeat  (≤ -20)                                  │
+│       +2 more                                                                │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+space pause · ← → step · +/- speed · t tactician · q quit
