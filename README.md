@@ -26,6 +26,8 @@ The lines marked _tactician_ explain each choice: what the acting side expects, 
 alternatives it passed up, with their scores from the initiator's point of view
 (`≤`/`≥` mark bounds that alpha-beta pruning left open; `≈` marks a score whose true value could lie on either side of the number).
 
+The block below is the `--plain` text log (`task run:plain`), the output a pipe or `--fast` gets.
+
 ```
 ⚔  Brull stands against Ziuon and Molphige.
 
@@ -50,9 +52,51 @@ Parting blow: Brull jabs Ziuon — 10 damage.
 🏁 Ziuon fled; Brull holds the field after 1 round.
 ```
 
-A line with search statistics follows at the end. Run it with `task run`; the log plays back live
-in a terminal, `task run -- --fast` prints it all at once and `task run -- --no-explain` leaves out
-the tactician notes.
+A line with search statistics follows at the end. Run it with `task run`; on a terminal it plays
+back in the TUI (see below), `task run -- --plain` prints the text log instead, and
+`task run -- --no-explain` leaves out the tactician notes.
+
+## Watching a fight
+
+On a terminal, `task run` opens the fight in a TUI: the standoff frame with both sides' health bars
+and the log beside them. Pipe the output, or pass `--fast` or `--plain` (`task run:plain`), and the
+text log is printed instead. This is what the frame looks like at the first action:
+
+```
+Round 1 · action 1/3 · ⏸ 1×                                      ambush · seed 7
+Brull(6) ▸ Molphige(5) ▸ Ziuon(3)
+┌ heroes ──────────────────────────────────────────────────────────── villains ┐
+│Brull ██████████ 20/20                               Ziuon    ██████████ 15/15│
+│fists 10 · speed 6                                           stick 5 · speed 3│
+│                                                                              │
+│                                  ── 10 ──▶          Molphige ✝ fallen        │
+│                                                            fists 20 · speed 5│
+└──────────────────────────────────────────────────────────────────────────────┘
+┌ log ─────────────────────────────────────────────────────────────────────────┐
+│⚔  Brull stands against Ziuon and Molphige.                                   │
+│Brull jabs Molphige — 10 damage. Molphige is down!                            │
+│   ↳ tactician: expects they escape (2)                                       │
+│       alt: punch Ziuon    → defeat  (≤ -20)                                  │
+│       alt: glare at Ziuon → defeat  (≤ -20)                                  │
+│       +2 more                                                                │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+space pause · ← → step · +/- speed · t tactician · q quit
+```
+
+- `space` pauses and resumes the fight.
+- `←` / `→` (or `h` / `l`) step one action back or forward; stepping pauses the fight.
+- `+` / `-` change the speed between 0.25× and 4×.
+- `t` toggles the tactician notes.
+- `q`, `Esc` or `Ctrl-C` quit.
+
+After the fight ends the screen stays until you quit, and `←` still steps back through it.
+Terminals smaller than 80×24 show "terminal too small (needs 80×24)".
 
 ## Choosing a fight
 
@@ -67,6 +111,7 @@ the clock and print it in the statistics line, so a good fight can be replayed.
 | `task run:skirmish` | 2 heroes vs 3 villains |
 | `task run:brawl` | 3 heroes vs 4 villains |
 | `task run:random HEROES=4 VILLAINS=2 SEED=7` | Any sizes from 1 to 4 per side; `SEED` is optional |
+| `task run:plain` | Print the text combat log instead of the TUI (the default ambush) |
 
 Every task takes extra flags after `--`, e.g. `task run:brawl -- --seed 42 --fast`. The flags:
 
@@ -79,6 +124,7 @@ Every task takes extra flags after `--`, e.g. `task run:brawl -- --seed 42 --fas
   drops to 10–60%, and 10% leave after 2–5 rounds. Archetypes have a fixed one: Brawler tactical,
   Fencer flees at 30%, Scout leaves after round 3, Thug flees at 40%, Brute never flees, Lurker
   leaves after round 2. The panel shows it next to the health bar.
+- `--plain` prints the text combat log instead of opening the TUI (`--fast` does too, and so does piping).
 - `--seed N` replays a fight; `--depth N` sets how many actions ahead the tactician looks (1–40,
   default 10). Large fights get slow above about 16.
 

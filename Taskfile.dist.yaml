@@ -58,6 +58,12 @@ tasks:
       - task: run
         vars: { CLI_ARGS: '--heroes {{.HEROES}} --villains {{.VILLAINS}} {{.SEED_FLAG}} {{.CLI_ARGS}}' }
 
+  run:plain:
+    desc: Print the text combat log instead of the TUI
+    cmds:
+      - task: run
+        vars: { CLI_ARGS: '--plain {{.CLI_ARGS}}' }
+
   build:
     desc: Build the crate (PROFILE=release for optimized build)
     deps: [cargo:check-installed]
