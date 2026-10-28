@@ -3,7 +3,6 @@ use crate::weapon::Weapon;
 
 /// How readily a party member flees the conflict on their own.
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[allow(dead_code)] // Courage and AfterRounds are only built from rosters in later steps.
 pub enum Morale {
     /// Only flees when the party retreats as a whole.
     Tactical,

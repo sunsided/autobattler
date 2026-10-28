@@ -28,6 +28,7 @@ struct Archetype {
     fists: bool,
     damage: f32,
     speed: u32,
+    morale: Morale,
 }
 
 /// Brawler, Fencer, Scout.
@@ -37,18 +38,21 @@ const HERO_ARCHETYPES: [Archetype; 3] = [
         fists: true,
         damage: 10.0,
         speed: 6,
+        morale: Morale::Tactical,
     },
     Archetype {
         health: 16.0,
         fists: false,
         damage: 8.0,
         speed: 7,
+        morale: Morale::Courage(0.3),
     },
     Archetype {
         health: 12.0,
         fists: false,
         damage: 5.0,
         speed: 9,
+        morale: Morale::AfterRounds(3),
     },
 ];
 
@@ -59,18 +63,21 @@ const VILLAIN_ARCHETYPES: [Archetype; 3] = [
         fists: false,
         damage: 6.0,
         speed: 4,
+        morale: Morale::Courage(0.4),
     },
     Archetype {
         health: 25.0,
         fists: true,
         damage: 15.0,
         speed: 2,
+        morale: Morale::Never,
     },
     Archetype {
         health: 10.0,
         fists: true,
         damage: 8.0,
         speed: 8,
+        morale: Morale::AfterRounds(2),
     },
 ];
 
@@ -121,11 +128,18 @@ fn random_stats(rng: &mut XorShift64) -> Archetype {
         rng.range(4, 12)
     } as f32;
     let speed = rng.range(1, 9);
+    let morale = match rng.range(1, 10) {
+        1..=4 => Morale::Tactical,
+        5..=6 => Morale::Never,
+        7..=9 => Morale::Courage(rng.range(1, 6) as f32 / 10.0),
+        _ => Morale::AfterRounds(rng.range(2, 5) as usize),
+    };
     Archetype {
         health,
         fists,
         damage,
         speed,
+        morale,
     }
 }
 
@@ -146,7 +160,7 @@ fn member(id: usize, stats: Archetype) -> PartyMember {
         weapon,
         can_act: true,
         speed: stats.speed,
-        morale: Morale::Tactical,
+        morale: stats.morale,
         fled: false,
     }
 }
@@ -175,12 +189,13 @@ pub fn names(heroes: usize, villains: usize, rng: &mut XorShift64) -> Vec<Vec<St
 mod tests {
     use super::*;
 
-    fn stats(member: &PartyMember) -> (f32, bool, f32, u32) {
+    fn stats(member: &PartyMember) -> (f32, bool, f32, u32, Morale) {
         (
             member.health,
             matches!(member.weapon, Weapon::Fists(_)),
             member.weapon.damage(),
             member.speed,
+            member.morale,
         )
     }
 
@@ -205,7 +220,7 @@ mod tests {
         for seed in 0..200 {
             let mut rng = XorShift64::new(seed);
             for member in party(0, Side::Heroes, 4, Roster::Random, &mut rng).members {
-                let (health, fists, damage, speed) = stats(&member);
+                let (health, fists, damage, speed, _) = stats(&member);
                 assert!((10.0..=25.0).contains(&health));
                 assert_eq!(health.fract(), 0.0);
                 if fists {
@@ -220,6 +235,30 @@ mod tests {
     }
 
     #[test]
+    fn random_morale_stays_in_range() {
+        let courages: Vec<Morale> = (1..=6).map(|t| Morale::Courage(t as f32 / 10.0)).collect();
+        let (mut tactical, mut never, mut courage, mut after) = (false, false, false, false);
+        for seed in 0..200 {
+            let mut rng = XorShift64::new(seed);
+            for member in party(0, Side::Heroes, 4, Roster::Random, &mut rng).members {
+                match member.morale {
+                    Morale::Tactical => tactical = true,
+                    Morale::Never => never = true,
+                    Morale::Courage(_) => {
+                        assert!(courages.contains(&member.morale));
+                        courage = true;
+                    }
+                    Morale::AfterRounds(n) => {
+                        assert!((2..=5).contains(&n));
+                        after = true;
+                    }
+                }
+            }
+        }
+        assert!(tactical && never && courage && after);
+    }
+
+    #[test]
     fn archetype_members_match_their_side() {
         for (side, archetypes) in [
             (Side::Heroes, HERO_ARCHETYPES),
@@ -227,7 +266,7 @@ mod tests {
         ] {
             let expected: Vec<_> = archetypes
                 .iter()
-                .map(|a| (a.health, a.fists, a.damage, a.speed))
+                .map(|a| (a.health, a.fists, a.damage, a.speed, a.morale))
                 .collect();
             let mut rng = XorShift64::new(3);
             for member in party(0, side, 4, Roster::Archetypes, &mut rng).members {
@@ -247,7 +286,10 @@ mod tests {
     fn random_hero_for_seed_42_is_stable() {
         let mut rng = XorShift64::new(42);
         let party = party(0, Side::Heroes, 1, Roster::Random, &mut rng);
-        assert_eq!(stats(&party.members[0]), (18.0, true, 15.0, 3));
+        assert_eq!(
+            stats(&party.members[0]),
+            (18.0, true, 15.0, 3, Morale::Tactical)
+        );
     }
 
     #[test]
