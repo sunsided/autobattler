@@ -40,6 +40,8 @@ pub struct Beat {
 pub struct NarrationOptions {
     /// Adds tactician notes explaining each choice.
     pub explain: bool,
+    /// The seed the fight was built from, shown so it can be replayed.
+    pub seed: Option<u64>,
 }
 
 /// Narrates the timeline of a solved conflict.
@@ -110,7 +112,10 @@ impl<'a> Narrator<'a> {
         beats.push(Beat {
             kind: BeatKind::Stats,
             lines: vec![format!(
-                "({} evaluations, {} cuts, depth {}, {:?})",
+                "({}{} evaluations, {} cuts, depth {}, {:?})",
+                self.options
+                    .seed
+                    .map_or(String::new(), |seed| format!("seed {seed}, ")),
                 outcome.evaluations,
                 outcome.cuts,
                 outcome.max_visited_depth,
@@ -251,7 +256,13 @@ mod tests {
         colored::control::set_override(false);
         let names = names();
         let outcome = Solver::engage(conflict, SolverStrategy::IterativeDeepening(10));
-        let narrator = Narrator::new(&names, NarrationOptions { explain });
+        let narrator = Narrator::new(
+            &names,
+            NarrationOptions {
+                explain,
+                seed: None,
+            },
+        );
         let mut text = narrator
             .narrate(conflict, &outcome)
             .into_iter()
@@ -290,6 +301,25 @@ mod tests {
     }
 
     #[test]
+    fn stats_line_shows_the_seed() {
+        let names = names();
+        let conflict = scenario::default_conflict();
+        let outcome = Solver::engage(&conflict, SolverStrategy::IterativeDeepening(10));
+        let stats = |seed| {
+            let options = NarrationOptions {
+                explain: false,
+                seed,
+            };
+            let beats = Narrator::new(&names, options).narrate(&conflict, &outcome);
+            let last = beats.last().expect("stats beat");
+            assert_eq!(last.kind, BeatKind::Stats);
+            last.lines[0].clone()
+        };
+        assert!(stats(Some(42)).starts_with("(seed 42, "));
+        assert!(stats(None).starts_with("(") && !stats(None).contains("seed"));
+    }
+
+    #[test]
     fn narrates_nothing_for_empty_timeline() {
         let mut conflict = scenario::default_conflict();
         for member in conflict.opponent.members.iter_mut() {
@@ -301,11 +331,17 @@ mod tests {
 
         let names = names();
         let outcome = Solver::engage(&conflict, SolverStrategy::IterativeDeepening(10));
-        let kinds: Vec<BeatKind> = Narrator::new(&names, NarrationOptions { explain: true })
-            .narrate(&conflict, &outcome)
-            .iter()
-            .map(|beat| beat.kind)
-            .collect();
+        let kinds: Vec<BeatKind> = Narrator::new(
+            &names,
+            NarrationOptions {
+                explain: true,
+                seed: None,
+            },
+        )
+        .narrate(&conflict, &outcome)
+        .iter()
+        .map(|beat| beat.kind)
+        .collect();
         assert_eq!(
             kinds,
             vec![
