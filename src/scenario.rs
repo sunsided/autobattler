@@ -70,6 +70,16 @@ pub enum Setup {
     Custom { heroes: usize, villains: usize },
 }
 
+impl Setup {
+    /// The scenario name shown to the player: the preset name or `custom {h}v{v}`.
+    pub fn label(self) -> String {
+        match self {
+            Setup::Preset(preset) => preset.name().to_string(),
+            Setup::Custom { heroes, villains } => format!("custom {heroes}v{villains}"),
+        }
+    }
+}
+
 /// A ready-to-solve encounter with display names.
 pub struct Fight {
     pub conflict: Conflict,
@@ -154,6 +164,17 @@ mod tests {
             fight.conflict.initiator.len(),
             fight.conflict.opponent.len(),
         )
+    }
+
+    #[test]
+    fn label_names_presets_and_custom_sizes() {
+        assert_eq!(Setup::Preset(Preset::Ambush).label(), "ambush");
+        assert_eq!(Setup::Preset(Preset::Brawl).label(), "brawl");
+        let custom = Setup::Custom {
+            heroes: 2,
+            villains: 4,
+        };
+        assert_eq!(custom.label(), "custom 2v4");
     }
 
     #[test]

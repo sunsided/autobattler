@@ -1,6 +1,8 @@
 //! Terminal UI for watching a fight play out.
 
 pub mod app;
+#[allow(dead_code)] // wired into the event loop in a later commit
+pub mod menu;
 pub mod view;
 
 use app::{App, Key};

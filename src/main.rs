@@ -2,7 +2,7 @@ use crate::cli::{Command, UiMode};
 use crate::narration::playback::play;
 use crate::narration::{BeatKind, NarrationOptions, Narrator};
 use crate::roster::Roster;
-use crate::scenario::{Fight, Preset, Setup};
+use crate::scenario::{Fight, Preset};
 use crate::solver::{Solver, SolverStrategy, MAX_ROUNDS};
 use crate::tui::view::FightView;
 use crate::tui::TuiError;
@@ -77,10 +77,7 @@ fn main() -> ExitCode {
 
     if tui {
         let beats = narrate(true);
-        let scenario = match options.setup {
-            Setup::Preset(preset) => preset.name().to_string(),
-            Setup::Custom { heroes, villains } => format!("custom {heroes}v{villains}"),
-        };
+        let scenario = options.setup.label();
         let fight = FightView {
             start: &conflict,
             outcome: &outcome,

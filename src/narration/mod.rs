@@ -82,13 +82,18 @@ impl<'a> Narrator<'a> {
         Self { names, options }
     }
 
-    /// Builds the combat log for `outcome`, starting from `start`.
-    pub fn narrate(&self, start: &Conflict, outcome: &Outcome) -> Vec<Beat> {
+    /// The line that introduces the fight starting at `start`.
+    pub fn intro(&self, start: &Conflict) -> String {
         let heroes = self.party_names(start.initiator.id);
         let villains = self.party_names(start.opponent.id);
+        flavor::intro(&heroes, &villains)
+    }
+
+    /// Builds the combat log for `outcome`, starting from `start`.
+    pub fn narrate(&self, start: &Conflict, outcome: &Outcome) -> Vec<Beat> {
         let mut beats = vec![Beat {
             kind: BeatKind::Intro,
-            lines: vec![flavor::intro(&heroes, &villains)],
+            lines: vec![self.intro(start)],
             event: None,
         }];
 
@@ -424,6 +429,28 @@ mod tests {
         let parting = text.find("Parting blow: ").expect("a parting blow");
         assert!(parting > flight);
         assert_eq!(text.matches("Parting blow: ").count(), 1);
+    }
+
+    #[test]
+    fn intro_matches_the_first_beat() {
+        colored::control::set_override(false);
+        let conflict = scenario::default_conflict();
+        let names = names();
+        let narrator = Narrator::new(
+            &names,
+            NarrationOptions {
+                explain: false,
+                seed: None,
+            },
+        );
+        let outcome = Solver::play(
+            &conflict,
+            SolverStrategy::IterativeDeepening(10),
+            MAX_ROUNDS,
+        );
+        let beats = narrator.narrate(&conflict, &outcome);
+        assert_eq!(beats[0].kind, BeatKind::Intro);
+        assert_eq!(beats[0].lines, vec![narrator.intro(&conflict)]);
     }
 
     #[test]
