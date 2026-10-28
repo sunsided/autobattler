@@ -43,6 +43,7 @@ mod tests {
         Beat {
             kind,
             lines: lines.iter().map(|l| l.to_string()).collect(),
+            event: None,
         }
     }
 

@@ -36,6 +36,31 @@ pub struct Beat {
     pub kind: BeatKind,
     /// The rendered lines.
     pub lines: Vec<String>,
+    /// The timeline event the beat belongs to, if any.
+    ///
+    /// A round header points at the round's first event and a panel at its
+    /// last; intro, outro and stats belong to no event.
+    pub event: Option<usize>,
+}
+
+/// The log lines visible once `shown` events have played.
+///
+/// These are the intro lines plus, for every action beat of an event below
+/// `shown`, its first line and, when `explain` is set, the remaining ones.
+/// Empty lines are dropped.
+#[allow(dead_code)]
+pub fn log_lines(beats: &[Beat], shown: usize, explain: bool) -> Vec<String> {
+    let intro = beats.iter().filter(|b| b.kind == BeatKind::Intro);
+    let actions = beats
+        .iter()
+        .filter(|b| b.kind == BeatKind::Action && b.event.is_some_and(|e| e < shown));
+    let mut lines: Vec<String> = intro.flat_map(|b| b.lines.clone()).collect();
+    for beat in actions {
+        let take = if explain { beat.lines.len() } else { 1 };
+        lines.extend(beat.lines.iter().take(take).cloned());
+    }
+    lines.retain(|line| !line.is_empty());
+    lines
 }
 
 /// Controls what the narrator includes.
@@ -65,6 +90,7 @@ impl<'a> Narrator<'a> {
         let mut beats = vec![Beat {
             kind: BeatKind::Intro,
             lines: vec![flavor::intro(&heroes, &villains)],
+            event: None,
         }];
 
         let timeline = &outcome.timeline;
@@ -72,6 +98,7 @@ impl<'a> Narrator<'a> {
             beats.push(Beat {
                 kind: BeatKind::Action,
                 lines: vec!["Nothing happens.".to_string()],
+                event: None,
             });
         }
 
@@ -82,6 +109,7 @@ impl<'a> Narrator<'a> {
                 beats.push(Beat {
                     kind: BeatKind::RoundHeader,
                     lines: vec![String::new(), self.round_header(event.round, state)],
+                    event: Some(i),
                 });
             }
 
@@ -91,6 +119,7 @@ impl<'a> Narrator<'a> {
             beats.push(Beat {
                 kind: BeatKind::Action,
                 lines: self.action_lines(start, before, event, parting),
+                event: Some(i),
             });
 
             if timeline.get(i + 1).is_none_or(|n| n.round != event.round) {
@@ -99,6 +128,7 @@ impl<'a> Narrator<'a> {
                 beats.push(Beat {
                     kind: BeatKind::Panel,
                     lines,
+                    event: Some(i),
                 });
             }
         }
@@ -113,6 +143,7 @@ impl<'a> Narrator<'a> {
                 String::new(),
                 flavor::outro(&outcome.outcome, &heroes, &villains, rounds),
             ],
+            event: None,
         });
         beats.push(Beat {
             kind: BeatKind::Stats,
@@ -126,6 +157,7 @@ impl<'a> Narrator<'a> {
                 outcome.max_visited_depth,
                 outcome.search_duration
             )],
+            event: None,
         });
         beats
     }
@@ -511,5 +543,67 @@ mod tests {
         let header = narrator.round_header(1, &conflict);
         assert!(!header.contains("Ziuon"), "{header}");
         assert!(header.contains("Molphige"), "{header}");
+    }
+
+    fn ambush_beats() -> Vec<Beat> {
+        let names = names();
+        let conflict = scenario::default_conflict();
+        let outcome = Solver::play(
+            &conflict,
+            SolverStrategy::IterativeDeepening(10),
+            MAX_ROUNDS,
+        );
+        let options = NarrationOptions {
+            explain: true,
+            seed: None,
+        };
+        Narrator::new(&names, options).narrate(&conflict, &outcome)
+    }
+
+    #[test]
+    fn beats_carry_event_indices() {
+        colored::control::set_override(false);
+        // golden/explain.txt shows one round with three actions: Brull's jab,
+        // Ziuon's flight and Brull's parting blow, i.e. events 0, 1 and 2.
+        let tagged: Vec<(BeatKind, Option<usize>)> = ambush_beats()
+            .iter()
+            .map(|beat| (beat.kind, beat.event))
+            .collect();
+        assert_eq!(
+            tagged,
+            vec![
+                (BeatKind::Intro, None),
+                (BeatKind::RoundHeader, Some(0)),
+                (BeatKind::Action, Some(0)),
+                (BeatKind::Action, Some(1)),
+                (BeatKind::Action, Some(2)),
+                (BeatKind::Panel, Some(2)),
+                (BeatKind::Outro, None),
+                (BeatKind::Stats, None),
+            ]
+        );
+    }
+
+    #[test]
+    fn log_lines_match_the_text_log() {
+        colored::control::set_override(false);
+        let beats = ambush_beats();
+        let intro: Vec<String> = beats[0].lines.clone();
+        let actions: Vec<&Beat> = beats
+            .iter()
+            .filter(|beat| beat.kind == BeatKind::Action)
+            .collect();
+        for shown in 0..=actions.len() {
+            let mut expected = intro.clone();
+            let mut brief = intro.clone();
+            for beat in &actions[..shown] {
+                expected.extend(beat.lines.clone());
+                brief.push(beat.lines[0].clone());
+            }
+            expected.retain(|line| !line.is_empty());
+            brief.retain(|line| !line.is_empty());
+            assert_eq!(log_lines(&beats, shown, true), expected, "shown {shown}");
+            assert_eq!(log_lines(&beats, shown, false), brief, "shown {shown}");
+        }
     }
 }
