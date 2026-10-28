@@ -19,6 +19,7 @@ mod rng;
 mod roster;
 mod scenario;
 mod solver;
+mod tui;
 mod utility_value;
 mod value;
 mod weapon;
