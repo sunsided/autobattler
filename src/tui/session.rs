@@ -208,6 +208,8 @@ impl Session {
         let mut job = None;
         let generation = if let Some((_, parked)) = self.parked.take_if(|(s, _)| *s == selection) {
             solution = Some(parked);
+            // A generation of its own, so no pending job can land on this lineup.
+            self.generation += 1;
             self.generation
         } else if let Some((_, generation)) = self.pending.filter(|(s, _)| *s == selection) {
             generation
@@ -502,6 +504,25 @@ mod tests {
         assert!(s.handle(Input::Enter).is_none());
         s.handle(Input::Space);
         assert_eq!(s.screen(), ScreenKind::Fight);
+    }
+
+    #[test]
+    fn a_pending_job_never_lands_on_a_parked_lineup() {
+        let mut s = session();
+        let ambush = job(&mut s).generation;
+        assert!(s.solved(ambush, solution()));
+        s.handle(Input::Char('b'));
+        s.handle(Input::Down);
+        let duel = job(&mut s).generation;
+        s.handle(Input::Char('b'));
+        s.handle(Input::Up);
+        assert!(s.handle(Input::Enter).is_none());
+        assert!(!s.solved(duel, solution()));
+        assert_eq!(s.screen(), ScreenKind::Lineup);
+        assert_eq!(
+            s.parked.as_ref().map(|(s, _)| s.0),
+            Some(Setup::Preset(Preset::Duel))
+        );
     }
 
     #[test]
