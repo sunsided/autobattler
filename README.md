@@ -94,7 +94,7 @@ Menu:
 
 - `↑` / `↓` (or `k` / `j`) move between the scenarios, the hero and villain counts, the roster and the seed.
 - `←` / `→` (or `h` / `l`) change the value on that row.
-- `0`-`9` and `Backspace` edit the seed on its row; `r` rolls a new one.
+- `0`-`9` and `Backspace` edit the seed on its row (the first key after arriving starts a new number); `r` rolls a new one.
 - `enter` opens the lineup; `q`, `Esc` or `Ctrl-C` quit.
 
 Lineup:

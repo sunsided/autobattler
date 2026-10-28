@@ -70,8 +70,12 @@ pub enum TuiError {
 /// Returns the last fight seen, if any, even when the terminal failed later.
 pub fn run(menu: Menu, depth: usize, explain: bool) -> (Option<Solved>, Result<(), TuiError>) {
     let previous = std::panic::take_hook();
+    let main_thread = std::thread::current().id();
     std::panic::set_hook(Box::new(move |info| {
-        restore();
+        // A solver thread may panic while the terminal is still in use.
+        if std::thread::current().id() == main_thread {
+            restore();
+        }
         previous(info);
     }));
 

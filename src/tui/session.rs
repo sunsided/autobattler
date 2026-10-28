@@ -5,7 +5,8 @@
 
 use crate::conflict::Conflict;
 use crate::narration::{Beat, NarrationOptions, Narrator};
-use crate::scenario::{self, Fight};
+use crate::roster::Roster;
+use crate::scenario::{self, Fight, Setup};
 use crate::solver::{Outcome, Solver, SolverStrategy, MAX_ROUNDS};
 use crate::tui::app::{App, Key};
 use crate::tui::menu::{draw_menu, Menu, MenuKey};
@@ -80,6 +81,8 @@ pub fn solve(conflict: &Conflict, names: &[Vec<String>], seed: u64, depth: usize
     Solution { outcome, beats }
 }
 
+type Selection = (Setup, Roster, u64);
+
 enum Screen {
     Menu,
     Lineup {
@@ -104,6 +107,10 @@ pub struct Session {
     explain: bool,
     generation: u64,
     screen: Screen,
+    /// The solve in flight: what it is for and which generation will carry it.
+    pending: Option<(Selection, u64)>,
+    /// A finished solution nobody is looking at, kept for the same selection.
+    parked: Option<(Selection, Solution)>,
     last: Option<Solved>,
     quit: bool,
 }
@@ -117,6 +124,8 @@ impl Session {
             explain,
             generation: 0,
             screen: Screen::Menu,
+            pending: None,
+            parked: None,
             last: None,
             quit: false,
         }
@@ -170,7 +179,7 @@ impl Session {
                     return None;
                 }
             },
-            Input::Enter => return Some(self.start_lineup()),
+            Input::Enter => return self.start_lineup(),
             Input::Esc => {
                 self.quit = true;
                 return None;
@@ -181,8 +190,11 @@ impl Session {
         None
     }
 
-    fn start_lineup(&mut self) -> Job {
-        let (setup, roster, seed) = self.menu.selection();
+    /// Opens the lineup; returns a job unless the same selection is already
+    /// solved or being solved.
+    fn start_lineup(&mut self) -> Option<Job> {
+        let selection = self.menu.selection();
+        let (setup, roster, seed) = selection;
         let Fight { conflict, names } = scenario::build(setup, roster, seed);
         let intro = Narrator::new(
             &names,
@@ -192,22 +204,33 @@ impl Session {
             },
         )
         .intro(&conflict);
-        self.generation += 1;
-        let job = Job {
-            generation: self.generation,
-            conflict: conflict.clone(),
-            names: names.clone(),
-            seed,
-            depth: self.depth,
+        let mut solution = None;
+        let mut job = None;
+        let generation = if let Some((_, parked)) = self.parked.take_if(|(s, _)| *s == selection) {
+            solution = Some(parked);
+            self.generation
+        } else if let Some((_, generation)) = self.pending.filter(|(s, _)| *s == selection) {
+            generation
+        } else {
+            self.generation += 1;
+            self.pending = Some((selection, self.generation));
+            job = Some(Job {
+                generation: self.generation,
+                conflict: conflict.clone(),
+                names: names.clone(),
+                seed,
+                depth: self.depth,
+            });
+            self.generation
         };
         self.screen = Screen::Lineup {
-            generation: self.generation,
+            generation,
             conflict,
             names,
             scenario: setup.label(),
             seed,
             intro,
-            solution: None,
+            solution,
         };
         job
     }
@@ -215,9 +238,21 @@ impl Session {
     fn handle_lineup(&mut self, input: Input) {
         match input {
             Input::Space | Input::Enter => self.begin(),
-            Input::Esc | Input::Char('b') => self.screen = Screen::Menu,
+            Input::Esc | Input::Char('b') => self.leave_lineup(),
             Input::Char('q') => self.quit = true,
             _ => {}
+        }
+    }
+
+    /// Back to the menu; a finished solution is parked for the same selection.
+    fn leave_lineup(&mut self) {
+        let selection = self.menu.selection();
+        if let Screen::Lineup {
+            solution: Some(solution),
+            ..
+        } = std::mem::replace(&mut self.screen, Screen::Menu)
+        {
+            self.parked = Some((selection, solution));
         }
     }
 
@@ -282,7 +317,13 @@ impl Session {
     }
 
     /// Takes the solution for `generation`; true if the lineup accepted it.
+    ///
+    /// A solution for the job in flight that arrives while the lineup is gone is
+    /// parked for the next time that selection is opened.
     pub fn solved(&mut self, generation: u64, solution: Solution) -> bool {
+        let Some((selection, _)) = self.pending.take_if(|(_, g)| *g == generation) else {
+            return false;
+        };
         match &mut self.screen {
             Screen::Lineup {
                 generation: current,
@@ -292,7 +333,10 @@ impl Session {
                 *slot = Some(solution);
                 true
             }
-            _ => false,
+            _ => {
+                self.parked = Some((selection, solution));
+                false
+            }
         }
     }
 
@@ -374,8 +418,10 @@ mod tests {
     }
 
     fn fight(session: &mut Session) {
-        let job = job(session);
-        assert!(session.solved(job.generation, solution()));
+        session.handle(Input::Enter);
+        if let Some((_, generation)) = session.pending {
+            assert!(session.solved(generation, solution()));
+        }
         session.handle(Input::Enter);
         assert_eq!(session.screen(), ScreenKind::Fight);
     }
@@ -406,6 +452,7 @@ mod tests {
         let mut s = session();
         let first = job(&mut s).generation;
         s.handle(Input::Char('b'));
+        s.handle(Input::Char('r'));
         let second = job(&mut s).generation;
         assert_eq!(second, first + 1);
         assert!(!s.solved(first, solution()));
@@ -419,26 +466,69 @@ mod tests {
         let mut s = session();
         let generation = job(&mut s).generation;
         s.handle(Input::Esc);
+        assert_eq!(s.screen(), ScreenKind::Menu);
         assert!(!s.solved(generation, solution()));
+    }
+
+    #[test]
+    fn reentering_the_same_selection_reuses_the_job() {
+        let mut s = session();
+        let first = job(&mut s).generation;
+        s.handle(Input::Char('b'));
+        assert!(s.handle(Input::Enter).is_none());
+        assert_eq!(s.screen(), ScreenKind::Lineup);
+        assert!(s.solved(first, solution()));
+        s.handle(Input::Space);
+        assert_eq!(s.screen(), ScreenKind::Fight);
+    }
+
+    #[test]
+    fn a_solution_arriving_on_the_menu_is_parked_and_reused() {
+        let mut s = session();
+        let first = job(&mut s).generation;
+        s.handle(Input::Char('b'));
+        assert!(!s.solved(first, solution()));
+        assert!(s.handle(Input::Enter).is_none());
+        s.handle(Input::Space);
+        assert_eq!(s.screen(), ScreenKind::Fight);
+    }
+
+    #[test]
+    fn back_from_a_ready_lineup_parks_the_solution() {
+        let mut s = session();
+        let generation = job(&mut s).generation;
+        assert!(s.solved(generation, solution()));
+        s.handle(Input::Char('b'));
+        assert!(s.handle(Input::Enter).is_none());
+        s.handle(Input::Space);
+        assert_eq!(s.screen(), ScreenKind::Fight);
+    }
+
+    #[test]
+    fn a_different_selection_starts_a_new_job() {
+        let mut s = session();
+        let first = job(&mut s).generation;
+        s.handle(Input::Char('b'));
+        s.handle(Input::Char('r'));
+        let second = s.handle(Input::Enter).expect("a new job");
+        assert_eq!(second.generation, first + 1);
+        assert!(!s.solved(first, solution()));
+        assert!(s.solved(second.generation, solution()));
     }
 
     #[test]
     fn back_from_lineup_and_fight_returns_to_the_menu_with_its_values() {
         let mut s = session();
         s.handle(Input::Char('r'));
-        let seed = {
-            let job = job(&mut s);
-            job.seed
-        };
+        let seed = job(&mut s).seed;
         assert_ne!(seed, 7);
         s.handle(Input::Char('b'));
         assert_eq!(s.screen(), ScreenKind::Menu);
-        assert_eq!(job(&mut s).seed, seed);
-        s.handle(Input::Esc);
+        assert_eq!(s.menu.seed(), seed);
         fight(&mut s);
         s.handle(Input::Char('b'));
         assert_eq!(s.screen(), ScreenKind::Menu);
-        assert_eq!(job(&mut s).seed, seed);
+        assert_eq!(s.menu.seed(), seed);
     }
 
     #[test]
@@ -450,7 +540,8 @@ mod tests {
         s.handle(Input::Char('x'));
         assert_eq!(s.menu.seed(), 7);
         s.handle(Input::Char('1'));
-        assert_eq!(s.menu.seed(), 71);
+        s.handle(Input::Char('2'));
+        assert_eq!(s.menu.seed(), 12);
         assert_eq!(s.screen(), ScreenKind::Menu);
     }
 

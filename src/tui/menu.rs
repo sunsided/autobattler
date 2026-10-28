@@ -61,6 +61,8 @@ pub struct Menu {
     villains: usize,
     roster: Roster,
     seed: u64,
+    /// The next digit or backspace on the seed row starts a new number.
+    fresh: bool,
     rng: XorShift64,
 }
 
@@ -78,6 +80,7 @@ impl Menu {
             villains,
             roster,
             seed,
+            fresh: false,
             rng: XorShift64::new(seed),
         }
     }
@@ -89,15 +92,27 @@ impl Menu {
             MenuKey::Down => self.step(true),
             MenuKey::Left => self.change(false),
             MenuKey::Right => self.change(true),
-            MenuKey::Reroll => self.seed = self.rng.next_u64() % 100_000,
+            MenuKey::Reroll => {
+                self.seed = self.rng.next_u64() % 100_000;
+                self.fresh = true;
+            }
             MenuKey::Digit(digit) if self.cursor == Row::Seed => {
+                if std::mem::take(&mut self.fresh) {
+                    self.seed = 0;
+                }
                 self.seed = self
                     .seed
                     .checked_mul(10)
                     .and_then(|seed| seed.checked_add(u64::from(digit)))
                     .unwrap_or(self.seed);
             }
-            MenuKey::Backspace if self.cursor == Row::Seed => self.seed /= 10,
+            MenuKey::Backspace if self.cursor == Row::Seed => {
+                self.seed = if std::mem::take(&mut self.fresh) {
+                    0
+                } else {
+                    self.seed / 10
+                };
+            }
             MenuKey::Digit(_) | MenuKey::Backspace => {}
         }
     }
@@ -163,6 +178,7 @@ impl Menu {
         };
         if let Some(&row) = target {
             self.cursor = row;
+            self.fresh = row == Row::Seed;
             if matches!(row, Row::Preset(_) | Row::Custom) {
                 self.chosen = row;
             }
@@ -388,16 +404,60 @@ mod tests {
     #[test]
     fn seed_digits_and_backspace() {
         let mut menu = on_seed(47);
-        menu.handle(MenuKey::Digit(1));
-        menu.handle(MenuKey::Digit(1));
+        for digit in [4, 7, 1, 1] {
+            menu.handle(MenuKey::Digit(digit));
+        }
         assert_eq!(menu.seed(), 4711);
         menu.handle(MenuKey::Backspace);
         assert_eq!(menu.seed(), 471);
     }
 
     #[test]
+    fn first_digit_on_the_seed_row_replaces_the_seed() {
+        let mut menu = on_seed(1_793_214_705_564_921_864);
+        menu.handle(MenuKey::Digit(4));
+        assert_eq!(menu.seed(), 4);
+        menu.handle(MenuKey::Digit(2));
+        assert_eq!(menu.seed(), 42);
+    }
+
+    #[test]
+    fn backspace_on_arrival_clears_the_seed() {
+        let mut menu = on_seed(47);
+        menu.handle(MenuKey::Backspace);
+        assert_eq!(menu.seed(), 0);
+        menu.handle(MenuKey::Digit(5));
+        assert_eq!(menu.seed(), 5);
+    }
+
+    #[test]
+    fn coming_back_to_the_seed_row_starts_fresh_again() {
+        let mut menu = on_seed(47);
+        menu.handle(MenuKey::Digit(1));
+        menu.handle(MenuKey::Digit(2));
+        menu.handle(MenuKey::Up);
+        menu.handle(MenuKey::Down);
+        assert_eq!(menu.cursor(), Row::Seed);
+        menu.handle(MenuKey::Digit(9));
+        assert_eq!(menu.seed(), 9);
+    }
+
+    #[test]
+    fn typing_after_a_reroll_starts_fresh() {
+        let mut menu = on_seed(47);
+        menu.handle(MenuKey::Digit(1));
+        menu.handle(MenuKey::Reroll);
+        menu.handle(MenuKey::Digit(3));
+        assert_eq!(menu.seed(), 3);
+    }
+
+    #[test]
     fn seed_digits_ignore_overflow() {
-        let mut menu = on_seed(u64::MAX);
+        let mut menu = on_seed(0);
+        for digit in u64::MAX.to_string().chars() {
+            menu.handle(MenuKey::Digit(digit.to_digit(10).unwrap() as u8));
+        }
+        assert_eq!(menu.seed(), u64::MAX);
         menu.handle(MenuKey::Digit(9));
         assert_eq!(menu.seed(), u64::MAX);
     }
