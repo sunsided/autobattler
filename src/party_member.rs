@@ -4,7 +4,7 @@ use crate::weapon::Weapon;
 /// How readily a party member flees the conflict on their own.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Morale {
-    /// Only flees when the party retreats as a whole.
+    /// Flees alone when the AI decides to, or when the AI orders the party to retreat.
     Tactical,
     /// Never flees, not even when the party retreats.
     Never,
@@ -26,8 +26,7 @@ pub struct PartyMember {
     /// The weapon of choice.
     pub weapon: Weapon,
     /// Whether the party member can currently act.
-    /// A member may not be able to act e.g. if they are paralyzed
-    /// or fled from the encounter.
+    /// A member may not be able to act e.g. if they are paralyzed.
     pub can_act: bool,
     /// The speed of the member. Faster members act earlier in a round.
     pub speed: u32,

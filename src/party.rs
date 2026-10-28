@@ -46,8 +46,8 @@ impl Party {
     /// Returns `true` if the party is defeated.
     ///
     /// ## Defeat
-    /// A party is considered defeated if either all party members
-    /// are deceased or have fled the conflict.
+    /// A party is considered defeated if all party members are deceased.
+    /// Fled members are not counted here; `is_gone` covers them.
     pub fn is_defeated(&self) -> bool {
         self.members.iter().all(PartyMember::is_dead)
     }
@@ -116,6 +116,19 @@ mod tests {
         assert_eq!(p.retreat(), vec![0, 2]);
         assert!(p.members[1].on_field());
         assert!(!p.is_gone());
+    }
+
+    #[test]
+    fn retreat_skips_dead_and_fled_members() {
+        let mut p = party(vec![
+            member(0, Morale::Tactical),
+            member(1, Morale::Tactical),
+            member(2, Morale::Tactical),
+        ]);
+        p.members[0].health = 0.0;
+        p.members[1].fled = true;
+        assert_eq!(p.retreat(), vec![2]);
+        assert!(!p.members[0].fled);
     }
 
     #[test]

@@ -262,8 +262,8 @@ impl Solver {
     fn minimax_expand(mut node: Node, next_child_id: usize) -> ExpansionResult {
         debug_assert!(next_child_id > node.id);
 
-        // If nobody is left to act (a party was defeated, or the round in which
-        // a party retreated is over), this is a terminal state.
+        // The state is terminal if either side is defeated, or, outside parting
+        // blows, if either side has nobody left on the field.
         let Some(turn) = node.state.next_turn() else {
             return ExpansionResult::new_exhaustion(node);
         };
@@ -1405,6 +1405,9 @@ mod tests {
                 AppliedAction::Targeted(_)
             ]
         ));
+        // The utility ignores opponent health, so several moves tie at Remain(2.0)
+        // and the search keeps the first one generated (the full attack), which is
+        // why the villain ends at 5 health.
         assert_eq!(solution.timeline[2].state.opponent.members[0].health, 5.0);
     }
 
