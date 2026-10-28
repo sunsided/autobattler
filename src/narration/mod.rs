@@ -83,9 +83,11 @@ impl<'a> Narrator<'a> {
                 });
             }
 
+            // A retreat starts the parting blows; every action after it is one.
+            let parting = previous.is_some_and(|p| p.state.parting);
             beats.push(Beat {
                 kind: BeatKind::Action,
-                lines: self.action_lines(start, event),
+                lines: self.action_lines(start, event, parting),
             });
 
             if timeline.get(i + 1).is_none_or(|n| n.round != event.round) {
@@ -141,7 +143,7 @@ impl<'a> Narrator<'a> {
     }
 
     /// Describes what happened in an event, plus the tactician note if enabled.
-    fn action_lines(&self, start: &Conflict, event: &Event) -> Vec<String> {
+    fn action_lines(&self, start: &Conflict, event: &Event, parting: bool) -> Vec<String> {
         let initiator = start.initiator.id;
         let actor = self.colored_name(initiator, &event.actor);
         let line = match &event.action {
@@ -149,7 +151,8 @@ impl<'a> Narrator<'a> {
                 let Action::SimpleAttack(attack) = &targeted.action;
                 let target = self.colored_name(initiator, &targeted.target);
                 let mut line = format!(
-                    "{actor} {} {target}{} — {} damage.",
+                    "{}{actor} {} {target}{} — {} damage.",
+                    if parting { "Parting blow: " } else { "" },
                     flavor::attack_verb(attack, event.round, event.slot),
                     flavor::instrument(attack),
                     format!("{}", attack.damage).yellow()
@@ -317,6 +320,15 @@ mod tests {
         };
         assert!(stats(Some(42)).starts_with("(seed 42, "));
         assert!(stats(None).starts_with("(") && !stats(None).contains("seed"));
+    }
+
+    #[test]
+    fn parting_blows_are_marked() {
+        let text = render(false);
+        let retreat = text.find("sounds the retreat").expect("a retreat");
+        let parting = text.find("Parting blow: ").expect("a parting blow");
+        assert!(parting > retreat);
+        assert_eq!(text.matches("Parting blow: ").count(), 1);
     }
 
     #[test]

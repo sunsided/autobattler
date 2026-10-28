@@ -13,6 +13,9 @@ pub struct Conflict {
     /// The index into the [`initiative order`](Conflict::initiative_order)
     /// at which the next turn of the current round is searched.
     pub slot: usize,
+    /// Set once a party retreated: every enemy still standing gets one parting
+    /// blow, in initiative order from the first slot, then the fight ends.
+    pub parting: bool,
 }
 
 /// A single turn of a single combatant in a round.
@@ -34,6 +37,7 @@ impl Conflict {
             opponent,
             round: 1,
             slot: 0,
+            parting: false,
         }
     }
 
@@ -70,18 +74,19 @@ impl Conflict {
     /// Determines the next turn, if any.
     ///
     /// Returns `None` if either party is defeated, or if nobody is left to act.
-    /// If a party retreated, the current round is finished but no new round starts.
+    /// After a retreat only the parting blows remain; no new round starts.
     pub fn next_turn(&self) -> Option<Turn> {
         if self.initiator.is_defeated() || self.opponent.is_defeated() {
             return None;
         }
 
+        // The fleeing party can no longer act, so only enemies qualify.
         let order = self.initiative_order();
         if let Some(turn) = self.find_actor(&order, self.round, self.slot) {
             return Some(turn);
         }
 
-        if self.initiator.has_retreated() || self.opponent.has_retreated() {
+        if self.parting {
             return None;
         }
 
@@ -89,9 +94,17 @@ impl Conflict {
     }
 
     /// Marks the turn as finished, advancing to the next slot.
+    ///
+    /// The first turn finished after a retreat starts the parting blows.
     pub fn finish_turn(&mut self, turn: &Turn) {
         self.round = turn.round;
-        self.slot = turn.slot + 1;
+        let retreated = self.initiator.has_retreated() || self.opponent.has_retreated();
+        if retreated && !self.parting {
+            self.parting = true;
+            self.slot = 0;
+        } else {
+            self.slot = turn.slot + 1;
+        }
     }
 
     fn find_actor(&self, order: &[Participant], round: usize, from_slot: usize) -> Option<Turn> {
@@ -233,34 +246,65 @@ mod tests {
         );
     }
 
-    #[test]
-    fn retreat_lets_enemy_finish_the_round_then_ends() {
-        let mut c = scenario(6);
+    /// Plays `turn`, retreating the actor's party first if `flee` is set.
+    fn act(c: &mut Conflict, flee: bool) -> Turn {
         let t = c.next_turn().unwrap();
-        c.initiator.retreat();
+        if flee {
+            if t.actor.party_id == c.initiator.id {
+                c.initiator.retreat();
+            } else {
+                c.opponent.retreat();
+            }
+        }
         c.finish_turn(&t);
-        let t = c.next_turn().unwrap();
-        assert_eq!(t.actor, p(1, 1));
-        c.finish_turn(&t);
-        let t = c.next_turn().unwrap();
-        assert_eq!(t.actor, p(1, 0));
-        c.finish_turn(&t);
-        assert_eq!(c.next_turn(), None);
+        t
+    }
+
+    fn remaining_actors(mut c: Conflict) -> Vec<Participant> {
+        let mut actors = Vec::new();
+        while c.next_turn().is_some() {
+            actors.push(act(&mut c, false).actor);
+        }
+        actors
     }
 
     #[test]
-    fn retreat_in_last_slot_gives_no_parting_action() {
+    fn retreat_gives_every_enemy_one_parting_blow() {
         let mut c = scenario(6);
-        c.finish_turn(&Turn {
-            round: 1,
-            slot: 1,
-            actor: p(1, 1),
-        });
-        let t = c.next_turn().unwrap();
+        act(&mut c, true);
+        assert!(c.parting);
+        assert_eq!(remaining_actors(c), vec![p(1, 1), p(1, 0)]);
+    }
+
+    #[test]
+    fn parting_blows_include_enemies_who_already_acted() {
+        // The hero is slowest: both villains act, then the hero flees.
+        let mut c = scenario(1);
+        act(&mut c, false);
+        act(&mut c, false);
+        let t = act(&mut c, true);
+        assert_eq!(t.actor, p(0, 0));
+        let next = c.next_turn().unwrap();
+        assert_eq!((next.round, next.slot), (1, 0));
+        assert_eq!(remaining_actors(c), vec![p(1, 1), p(1, 0)]);
+    }
+
+    #[test]
+    fn retreat_in_last_slot_still_costs_a_parting_blow() {
+        let mut c = scenario(6);
+        act(&mut c, false);
+        act(&mut c, false);
+        let t = act(&mut c, true);
         assert_eq!(t.actor, p(1, 0));
-        c.opponent.retreat();
-        c.finish_turn(&t);
-        assert_eq!(c.next_turn(), None);
+        assert_eq!(remaining_actors(c), vec![p(0, 0)]);
+    }
+
+    #[test]
+    fn dead_enemies_strike_no_parting_blow() {
+        let mut c = scenario(6);
+        c.opponent.members[1].health = 0.0;
+        act(&mut c, true);
+        assert_eq!(remaining_actors(c), vec![p(1, 0)]);
     }
 
     #[test]

@@ -2,18 +2,11 @@
 
 ══ Round 1 ══  initiative: Brull(6) → Molphige(5) → Ziuon(3)
 Brull jabs Molphige — 10 damage. Molphige is down!
-Ziuon jabs at Brull with a stick — 5 damage.
-
-  Brull     ███████████████░░░░░ 15/20
-  Ziuon     ████████████████████ 15/15
-  Molphige  ✝ fallen
-
-══ Round 2 ══  initiative: Brull(6) → Ziuon(3)
-Brull lands a haymaker on Ziuon — 10 damage.
 Ziuon sounds the retreat and flees!
+Parting blow: Brull jabs Ziuon — 10 damage.
 
-  Brull     ███████████████░░░░░ 15/20
+  Brull     ████████████████████ 20/20
   Ziuon     ↩ fled
   Molphige  ✝ fallen
 
-🏁 Ziuon fled; Brull holds the field after 2 rounds.
+🏁 Ziuon fled; Brull holds the field after 1 round.

@@ -409,6 +409,7 @@ impl Solver {
             opponent,
             round: parent.round,
             slot: parent.slot,
+            parting: parent.parting,
         }
     }
 
@@ -931,11 +932,13 @@ mod tests {
     fn complex_fight_opponent_flees() {
         let conflict = complex_flees_conflict();
 
-        // Ziuon takes one swing, then flees from the last slot of round two,
-        // which gives the hero no parting shot: 15 health * 0.1.
+        // The hero kills Molphige. Fleeing later would let the hero's parting
+        // blow finish Ziuon off, so he flees at once and survives it with 5
+        // health: 20 health * 0.1.
         let solution = Solver::engage(&conflict, SolverStrategy::DepthLimited(100));
-        assert_eq!(solution.outcome, OutcomeType::Remain(1.5));
-        assert_eq!(solution.len(), 4);
+        assert_eq!(solution.outcome, OutcomeType::Remain(2.0));
+        assert_eq!(solution.len(), 3);
+        assert_eq!(solution.timeline[1].action, AppliedAction::Flee);
     }
 
     #[test]
@@ -968,16 +971,16 @@ mod tests {
     }
 
     #[test]
-    fn slow_initiator_flees_at_round_end() {
-        // Order: Molphige(5), Ziuon(3), hero(1). Hero takes 20 + 5, then flees from
-        // the last slot, so no enemy acts again: Retreat(-25 * 0.1).
+    fn slow_initiator_pays_parting_blows_when_fleeing() {
+        // Order: Molphige(5), Ziuon(3), hero(1). Hero takes 20 + 5, flees from
+        // the last slot, and both villains strike again: Retreat(-50 * 0.1).
         let conflict = Conflict::new(
-            build_default_hero_party(true, 30.0, 1),
+            build_default_hero_party(true, 60.0, 1),
             build_complex_villain_party(true, 15.0),
         );
         let solution = Solver::engage(&conflict, SolverStrategy::DepthLimited(100));
-        assert_eq!(solution.outcome, OutcomeType::Retreat(-2.5));
-        assert_eq!(solution.len(), 3);
+        assert_eq!(solution.outcome, OutcomeType::Retreat(-5.0));
+        assert_eq!(solution.len(), 5);
         assert_eq!(solution.timeline[2].action, AppliedAction::Flee);
         assert_eq!(
             solution.timeline[0].actor,

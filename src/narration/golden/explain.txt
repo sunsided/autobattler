@@ -2,31 +2,20 @@
 
 ══ Round 1 ══  initiative: Brull(6) → Molphige(5) → Ziuon(3)
 Brull jabs Molphige — 10 damage. Molphige is down!
-   ↳ tactician: expects they escape (1.5)
+   ↳ tactician: expects they escape (2)
        alt: punch Ziuon    → defeat  (≤ -20)
        alt: glare at Ziuon → defeat  (≤ -20)
        +2 more
-Ziuon jabs at Brull with a stick — 5 damage.
-   ↳ tactician: expects escape (1.5)
-       alt: glare at Brull → escape  (≥ 1.9)
-       alt: order retreat  → escape  (2)
-
-  Brull     ███████████████░░░░░ 15/20
-  Ziuon     ████████████████████ 15/15
-  Molphige  ✝ fallen
-
-══ Round 2 ══  initiative: Brull(6) → Ziuon(3)
-Brull lands a haymaker on Ziuon — 10 damage.
-   ↳ tactician: expects they escape (1.5)
-       alt: glare at Ziuon → they escape  (≤ 1)
-       alt: order retreat  → escape       (≤ -1)
 Ziuon sounds the retreat and flees!
-   ↳ tactician: expects escape (1.5)
+   ↳ tactician: expects escape (2)
        alt: whack Brull    → defeat  (10)
        alt: glare at Brull → defeat  (≥ 14)
+Parting blow: Brull jabs Ziuon — 10 damage.
+   ↳ tactician: expects they escape (2)
+       alt: glare at Ziuon → they escape  (2)
 
-  Brull     ███████████████░░░░░ 15/20
+  Brull     ████████████████████ 20/20
   Ziuon     ↩ fled
   Molphige  ✝ fallen
 
-🏁 Ziuon fled; Brull holds the field after 2 rounds.
+🏁 Ziuon fled; Brull holds the field after 1 round.

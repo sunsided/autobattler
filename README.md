@@ -20,8 +20,8 @@ _Ziuon_ deals only 5 damage with their stick, but _Molphige_ deals 20 with their
 _Brull_ out in one hit. Fights are played in rounds, and within a round the fastest combatant acts first.
 _Brull_ is the fastest (speed 6), so the only viable option is to take _Molphige_ out before he can swing.
 
-That is indeed what happens. _Ziuon_ trades one blow, takes a haymaker in return and, acting last in
-round 2, sounds the retreat. With nobody left to act in that round, there is no parting shot.
+That is indeed what happens. With _Molphige_ down, _Ziuon_ sees no way to win and flees at once,
+taking _Brull_'s parting blow on the way out; waiting any longer would only cost more.
 The lines marked _tactician_ explain each choice: what the acting side expects, and the best
 alternatives it passed up, with their scores from the initiator's point of view
 (`≤`/`≥` mark bounds that alpha-beta pruning left open; `≈` marks a score whose true value could lie on either side of the number).
@@ -31,34 +31,23 @@ alternatives it passed up, with their scores from the initiator's point of view
 
 ══ Round 1 ══  initiative: Brull(6) → Molphige(5) → Ziuon(3)
 Brull jabs Molphige — 10 damage. Molphige is down!
-   ↳ tactician: expects they escape (1.5)
+   ↳ tactician: expects they escape (2)
        alt: punch Ziuon    → defeat  (≤ -20)
        alt: glare at Ziuon → defeat  (≤ -20)
        +2 more
-Ziuon jabs at Brull with a stick — 5 damage.
-   ↳ tactician: expects escape (1.5)
-       alt: glare at Brull → escape  (≥ 1.9)
-       alt: order retreat  → escape  (2)
-
-  Brull     ███████████████░░░░░ 15/20
-  Ziuon     ████████████████████ 15/15
-  Molphige  ✝ fallen
-
-══ Round 2 ══  initiative: Brull(6) → Ziuon(3)
-Brull lands a haymaker on Ziuon — 10 damage.
-   ↳ tactician: expects they escape (1.5)
-       alt: glare at Ziuon → they escape  (≤ 1)
-       alt: order retreat  → escape       (≤ -1)
 Ziuon sounds the retreat and flees!
-   ↳ tactician: expects escape (1.5)
+   ↳ tactician: expects escape (2)
        alt: whack Brull    → defeat  (10)
        alt: glare at Brull → defeat  (≥ 14)
+Parting blow: Brull jabs Ziuon — 10 damage.
+   ↳ tactician: expects they escape (2)
+       alt: glare at Ziuon → they escape  (2)
 
-  Brull     ███████████████░░░░░ 15/20
+  Brull     ████████████████████ 20/20
   Ziuon     ↩ fled
   Molphige  ✝ fallen
 
-🏁 Ziuon fled; Brull holds the field after 2 rounds.
+🏁 Ziuon fled; Brull holds the field after 1 round.
 ```
 
 A line with search statistics follows at the end. Run it with `task run`; the log plays back live
@@ -102,7 +91,7 @@ however far that is beyond the lookahead. After 50 rounds it is called undecided
   - [ ] Applying an effect to a party member,
   - [ ] Skip the turn, i.e. do nothing.
 - In addition, the faction as a whole can flee.
-  - [x] If a faction flees, the opposing faction finishes the current round; the fight ends after it.
+  - [x] Fleeing costs: every enemy still standing lands one parting blow, fastest first, then the fight ends.
 - [ ] Party members can panic and either flee, be paralyzed or attack their own faction.
  
 As for actions,
