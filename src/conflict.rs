@@ -13,9 +13,22 @@ pub struct Conflict {
     /// The index into the [`initiative order`](Conflict::initiative_order)
     /// at which the next turn of the current round is searched.
     pub slot: usize,
-    /// Set once a party retreated: every enemy still standing gets one parting
-    /// blow, in initiative order from the first slot, then the fight ends.
-    pub parting: bool,
+    /// Set while fighters have just fled: every enemy who can act gets one
+    /// parting blow before the interrupted round resumes.
+    pub parting: Option<Parting>,
+}
+
+/// The parting blows that interrupt a round after fighters fled.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Parting {
+    /// The party the fleeing fighters belong to.
+    pub fleeing_party: usize,
+    /// The IDs of the fighters who fled.
+    pub fleeing: Vec<usize>,
+    /// The slot at which the interrupted round resumes.
+    pub resume_slot: usize,
+    /// The initiative index at which the next parting actor is searched.
+    pub next: usize,
 }
 
 /// A single turn of a single combatant in a round.
@@ -37,7 +50,7 @@ impl Conflict {
             opponent,
             round: 1,
             slot: 0,
-            parting: false,
+            parting: None,
         }
     }
 
@@ -73,38 +86,87 @@ impl Conflict {
 
     /// Determines the next turn, if any.
     ///
-    /// Returns `None` if either party is defeated, or if nobody is left to act.
-    /// After a retreat only the parting blows remain; no new round starts.
+    /// Returns `None` if either party is defeated. While parting blows are
+    /// pending, the next one is returned. Otherwise returns `None` if either
+    /// party has left the field, or the next actor of this or the next round.
     pub fn next_turn(&self) -> Option<Turn> {
         if self.initiator.is_defeated() || self.opponent.is_defeated() {
             return None;
         }
 
-        // The fleeing party can no longer act, so only enemies qualify.
         let order = self.initiative_order();
-        if let Some(turn) = self.find_actor(&order, self.round, self.slot) {
-            return Some(turn);
+        if self.parting.is_some() {
+            return self.parting_actor(&order);
         }
 
-        if self.parting {
+        if self.initiator.is_gone() || self.opponent.is_gone() {
             return None;
+        }
+
+        if let Some(turn) = self.find_actor(&order, self.round, self.slot) {
+            return Some(turn);
         }
 
         self.find_actor(&order, self.round + 1, 0)
     }
 
-    /// Marks the turn as finished, advancing to the next slot.
-    ///
-    /// The first turn finished after a retreat starts the parting blows.
+    /// Marks the turn as finished, advancing to the next slot, or to the next
+    /// parting blow while parting.
     pub fn finish_turn(&mut self, turn: &Turn) {
-        self.round = turn.round;
-        let retreated = self.initiator.has_retreated() || self.opponent.has_retreated();
-        if retreated && !self.parting {
-            self.parting = true;
-            self.slot = 0;
+        if let Some(parting) = &mut self.parting {
+            parting.next = turn.slot + 1;
+            self.settle_parting();
         } else {
+            self.round = turn.round;
             self.slot = turn.slot + 1;
         }
+    }
+
+    /// Interrupts the round after `fleeing` fighters of `fleeing_party` fled
+    /// in `turn`: every enemy who can act strikes once, then the round resumes.
+    pub fn start_parting(&mut self, turn: &Turn, fleeing_party: usize, fleeing: Vec<usize>) {
+        self.round = turn.round;
+        self.parting = Some(Parting {
+            fleeing_party,
+            fleeing,
+            resume_slot: turn.slot + 1,
+            next: 0,
+        });
+        self.settle_parting();
+    }
+
+    /// Ends the parting phase once no parting actor remains.
+    fn settle_parting(&mut self) {
+        let Some(parting) = &self.parting else {
+            return;
+        };
+        if self.parting_actor(&self.initiative_order()).is_none() {
+            self.slot = parting.resume_slot;
+            self.parting = None;
+        }
+    }
+
+    /// Finds the next enemy of the fleeing party who may strike a parting blow.
+    fn parting_actor(&self, order: &[Participant]) -> Option<Turn> {
+        let parting = self.parting.as_ref()?;
+        let fleeing_party = self.action_target(parting.fleeing_party);
+        if !parting
+            .fleeing
+            .iter()
+            .any(|&id| !fleeing_party.members[id].is_dead())
+        {
+            return None;
+        }
+        order
+            .iter()
+            .enumerate()
+            .skip(parting.next)
+            .find(|(_, p)| p.party_id != parting.fleeing_party && self.targeted_member(p).can_act())
+            .map(|(slot, p)| Turn {
+                round: self.round,
+                slot,
+                actor: p.clone(),
+            })
     }
 
     fn find_actor(&self, order: &[Participant], round: usize, from_slot: usize) -> Option<Turn> {
@@ -251,13 +313,16 @@ mod tests {
     fn act(c: &mut Conflict, flee: bool) -> Turn {
         let t = c.next_turn().unwrap();
         if flee {
-            if t.actor.party_id == c.initiator.id {
-                c.initiator.retreat();
+            let party = t.actor.party_id;
+            let fled = if party == c.initiator.id {
+                c.initiator.retreat()
             } else {
-                c.opponent.retreat();
-            }
+                c.opponent.retreat()
+            };
+            c.start_parting(&t, party, fled);
+        } else {
+            c.finish_turn(&t);
         }
-        c.finish_turn(&t);
         t
     }
 
@@ -273,7 +338,7 @@ mod tests {
     fn retreat_gives_every_enemy_one_parting_blow() {
         let mut c = scenario(6);
         act(&mut c, true);
-        assert!(c.parting);
+        assert!(c.parting.is_some());
         assert_eq!(remaining_actors(c), vec![p(1, 1), p(1, 0)]);
     }
 
@@ -306,6 +371,111 @@ mod tests {
         c.opponent.members[1].health = 0.0;
         act(&mut c, true);
         assert_eq!(remaining_actors(c), vec![p(1, 0)]);
+    }
+
+    /// Makes the actor of `turn` flee on its own and starts the parting blows.
+    fn flee_member(c: &mut Conflict, turn: &Turn) {
+        let party = turn.actor.party_id;
+        let id = turn.actor.member_id;
+        let p = if party == c.initiator.id {
+            &mut c.initiator
+        } else {
+            &mut c.opponent
+        };
+        p.members[id].fled = true;
+        c.start_parting(turn, party, vec![id]);
+    }
+
+    #[test]
+    fn single_flight_resumes_the_round() {
+        let mut c = scenario(6);
+        let t = c.next_turn().unwrap();
+        c.finish_turn(&t);
+        let t = c.next_turn().unwrap();
+        assert_eq!(t.actor, p(1, 1));
+        flee_member(&mut c, &t);
+        let t = c.next_turn().unwrap();
+        assert_eq!((t.round, t.slot, t.actor.clone()), (1, 0, p(0, 0)));
+        c.finish_turn(&t);
+        assert!(c.parting.is_none());
+        let t = c.next_turn().unwrap();
+        assert_eq!((t.round, t.slot, t.actor.clone()), (1, 2, p(1, 0)));
+        c.finish_turn(&t);
+        let t = c.next_turn().unwrap();
+        assert_eq!((t.round, t.slot, t.actor), (2, 0, p(0, 0)));
+    }
+
+    #[test]
+    fn parting_ends_when_the_fleeing_fighters_die() {
+        let mut c = scenario(6);
+        c.initiator
+            .members
+            .push(member(1, 5, 20.0, Weapon::Fists(Fists { damage: 10.0 })));
+        c.opponent.members.remove(1);
+        // Order: hero 0 (6), hero 1 (5), villain 0 (3).
+        for _ in 0..2 {
+            let t = c.next_turn().unwrap();
+            c.finish_turn(&t);
+        }
+        let t = c.next_turn().unwrap();
+        assert_eq!(t.actor, p(1, 0));
+        flee_member(&mut c, &t);
+        let t = c.next_turn().unwrap();
+        assert_eq!(t.actor, p(0, 0));
+        c.opponent.members[0].health = 0.0; // the parting blow kills it
+        c.finish_turn(&t);
+        assert!(c.parting.is_none());
+        assert_eq!(c.next_turn(), None);
+        assert!(c.opponent.is_defeated());
+    }
+
+    #[test]
+    fn last_fighter_fleeing_ends_after_parting() {
+        let mut c = scenario(6);
+        c.opponent.members.remove(1);
+        let t = c.next_turn().unwrap();
+        c.finish_turn(&t);
+        let t = c.next_turn().unwrap();
+        assert_eq!(t.actor, p(1, 0));
+        flee_member(&mut c, &t);
+        assert!(c.opponent.is_gone());
+        let t = c.next_turn().unwrap();
+        assert_eq!(t.actor, p(0, 0));
+        c.finish_turn(&t);
+        assert_eq!(c.next_turn(), None);
+    }
+
+    #[test]
+    fn retreat_with_a_never_member_continues() {
+        let mut c = scenario(6);
+        c.opponent.members[0].morale = Morale::Never;
+        let t = c.next_turn().unwrap();
+        c.finish_turn(&t);
+        let t = c.next_turn().unwrap();
+        assert_eq!(t.actor, p(1, 1));
+        let fled = c.opponent.retreat();
+        assert_eq!(fled, vec![1]);
+        c.start_parting(&t, 1, fled);
+        let t = c.next_turn().unwrap();
+        assert_eq!(t.actor, p(0, 0));
+        c.finish_turn(&t);
+        let t = c.next_turn().unwrap();
+        assert_eq!((t.round, t.slot, t.actor), (1, 2, p(1, 0)));
+    }
+
+    #[test]
+    fn fled_fighters_take_no_turns() {
+        let mut c = scenario(6);
+        c.opponent.members[1].fled = true;
+        let mut actors = Vec::new();
+        while let Some(t) = c.next_turn() {
+            if t.round > 2 {
+                break;
+            }
+            actors.push(t.actor.clone());
+            c.finish_turn(&t);
+        }
+        assert_eq!(actors, vec![p(0, 0), p(1, 0), p(0, 0), p(1, 0)]);
     }
 
     #[test]

@@ -284,7 +284,7 @@ impl Solver {
             match action {
                 AppliedAction::Flee => {
                     let mut current = current.clone();
-                    let _ = current.retreat();
+                    let fled = current.retreat();
 
                     // Create a new branch on the board.
                     let mut state = Self::rebuild_state(
@@ -293,7 +293,7 @@ impl Solver {
                         current,
                         opponent.clone(),
                     );
-                    state.finish_turn(&turn);
+                    state.start_parting(&turn, source_party_id, fled);
 
                     let child_node =
                         Node::new_branch_from(next_child_id, &node, turn, action, state);
@@ -409,7 +409,7 @@ impl Solver {
             opponent,
             round: parent.round,
             slot: parent.slot,
-            parting: parent.parting,
+            parting: parent.parting.clone(),
         }
     }
 

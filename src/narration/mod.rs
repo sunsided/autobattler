@@ -84,7 +84,7 @@ impl<'a> Narrator<'a> {
             }
 
             // A retreat starts the parting blows; every action after it is one.
-            let parting = previous.is_some_and(|p| p.state.parting);
+            let parting = previous.is_some_and(|p| p.state.parting.is_some());
             beats.push(Beat {
                 kind: BeatKind::Action,
                 lines: self.action_lines(start, event, parting),
