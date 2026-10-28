@@ -243,7 +243,7 @@ fn retreat_line(actor: &str, fleeing: &[&str], actor_alone: bool) -> String {
 mod tests {
     use super::*;
     use crate::scenario;
-    use crate::solver::{Solver, SolverStrategy};
+    use crate::solver::{Solver, SolverStrategy, MAX_ROUNDS};
 
     fn names() -> Vec<Vec<String>> {
         vec![
@@ -255,7 +255,7 @@ mod tests {
     fn render_conflict(conflict: &crate::conflict::Conflict, explain: bool) -> String {
         colored::control::set_override(false);
         let names = names();
-        let outcome = Solver::engage(conflict, SolverStrategy::IterativeDeepening(10));
+        let outcome = Solver::play(conflict, SolverStrategy::IterativeDeepening(10), MAX_ROUNDS);
         let narrator = Narrator::new(
             &names,
             NarrationOptions {

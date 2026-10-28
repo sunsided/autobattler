@@ -88,7 +88,7 @@ pub(crate) fn outro(
         }
         OutcomeType::Retreat(_) => format!("🏁 {heroes} escaped after {n}."),
         OutcomeType::Unknown(_) => {
-            format!("🏁 Undecided after {n} — the tactician could not see further.")
+            format!("🏁 Undecided after {n} — both sides still stand.")
         }
     }
 }
@@ -204,7 +204,7 @@ mod tests {
         );
         assert_eq!(
             outro(&OutcomeType::Unknown(0.0), &["A"], &["B"], 1),
-            "🏁 Undecided after 1 round — the tactician could not see further."
+            "🏁 Undecided after 1 round — both sides still stand."
         );
     }
 

@@ -3,7 +3,7 @@ use crate::narration::playback::play;
 use crate::narration::{NarrationOptions, Narrator};
 use crate::roster::Roster;
 use crate::scenario::{Fight, Preset};
-use crate::solver::{Solver, SolverStrategy};
+use crate::solver::{Solver, SolverStrategy, MAX_ROUNDS};
 use std::io::{stdout, IsTerminal};
 use std::process::ExitCode;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -48,7 +48,8 @@ fn main() -> ExitCode {
     let roster = options.roster.unwrap_or(Roster::Random);
     let Fight { conflict, names } = scenario::build(options.setup, roster, seed);
 
-    let outcome = Solver::engage(&conflict, SolverStrategy::IterativeDeepening(options.depth));
+    let strategy = SolverStrategy::IterativeDeepening(options.depth);
+    let outcome = Solver::play(&conflict, strategy, MAX_ROUNDS);
 
     let narrator = Narrator::new(
         &names,

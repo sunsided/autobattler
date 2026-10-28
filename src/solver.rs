@@ -11,6 +11,21 @@ use std::time::{Duration, Instant};
 
 pub struct Solver;
 
+/// The most rounds [`Solver::play`] plays before calling the fight undecided.
+pub const MAX_ROUNDS: usize = 50;
+
+/// Classifies a value from the initiator's perspective.
+fn outcome_type(value: TerminalState) -> OutcomeType {
+    match value {
+        TerminalState::Win(score) => OutcomeType::Win(score),
+        TerminalState::Defeat(score) => OutcomeType::Lose(score),
+        TerminalState::Remain(score) => OutcomeType::Remain(score),
+        TerminalState::Retreat(score) => OutcomeType::Retreat(score),
+        TerminalState::Heuristic(score) => OutcomeType::Unknown(score),
+        TerminalState::OpenUnexplored(score) => OutcomeType::Unknown(score),
+    }
+}
+
 /// The strategy to use with the solver.
 #[derive(Debug, Copy, Clone)]
 #[allow(dead_code)]
@@ -63,6 +78,50 @@ impl Solver {
                     }
                 }
             }
+        }
+    }
+
+    /// Plays the conflict to its end, searching anew before every action.
+    ///
+    /// Each search looks ahead as far as `strategy` allows; only its first move
+    /// is played. Stops early, with an unknown outcome, once `max_rounds` rounds
+    /// have been played. Statistics are summed over all searches; the depth is
+    /// the deepest any search went.
+    pub fn play(conflict: &Conflict, strategy: SolverStrategy, max_rounds: usize) -> Outcome {
+        let mut state = conflict.clone();
+        let mut timeline = Vec::new();
+        let mut evaluations = 0;
+        let mut cuts = 0;
+        let mut search_duration = Duration::ZERO;
+        let mut max_visited_depth = 0;
+        let mut depth_limited = false;
+
+        while let Some(turn) = state.next_turn() {
+            if turn.round > max_rounds {
+                break;
+            }
+            let outcome = Self::engage(&state, strategy);
+            evaluations += outcome.evaluations;
+            cuts += outcome.cuts;
+            search_duration += outcome.search_duration;
+            max_visited_depth = max_visited_depth.max(outcome.max_visited_depth);
+            depth_limited |= outcome.depth_limited;
+
+            let Some(event) = outcome.timeline.into_iter().next() else {
+                break;
+            };
+            state = event.state.clone();
+            timeline.push(event);
+        }
+
+        Outcome {
+            outcome: outcome_type(get_utility(&state)),
+            timeline,
+            evaluations,
+            cuts,
+            search_duration,
+            max_visited_depth,
+            depth_limited,
         }
     }
 
@@ -365,15 +424,7 @@ impl Solver {
         // The outcome is positive only if the value of the start
         // node is positive and under the assumption that the opposing
         // player attempts to play optimally.
-        let value = nodes[0].value.value;
-        let outcome = match value {
-            TerminalState::Win(score) => OutcomeType::Win(score),
-            TerminalState::Defeat(score) => OutcomeType::Lose(score),
-            TerminalState::Remain(score) => OutcomeType::Remain(score),
-            TerminalState::Retreat(score) => OutcomeType::Retreat(score),
-            TerminalState::Heuristic(score) => OutcomeType::Unknown(score),
-            TerminalState::OpenUnexplored(score) => OutcomeType::Unknown(score),
-        };
+        let outcome = outcome_type(nodes[0].value.value);
 
         // Follow the principal variation. If the root has no best child,
         // the conflict was already decided and the timeline stays empty.
@@ -965,6 +1016,62 @@ mod tests {
         let solution = Solver::engage(&conflict, SolverStrategy::IterativeDeepening(10));
         assert!(solution.timeline.is_empty());
         assert!(matches!(solution.outcome, OutcomeType::Win(_)));
+    }
+
+    fn simple_conflict() -> Conflict {
+        Conflict::new(
+            build_default_hero_party(false, 25.0, 6),
+            build_simple_villain_party(),
+        )
+    }
+
+    #[test]
+    fn play_continues_past_the_lookahead() {
+        let conflict = simple_conflict();
+        let strategy = SolverStrategy::DepthLimited(2);
+        assert!(matches!(
+            Solver::engage(&conflict, strategy).outcome,
+            OutcomeType::Unknown(_)
+        ));
+
+        let played = Solver::play(&conflict, strategy, MAX_ROUNDS);
+        assert_eq!(played.outcome, OutcomeType::Win(5.0));
+        let end = &played.timeline.last().expect("events").state;
+        assert!(end.next_turn().is_none());
+        assert_eq!(played.timeline.len(), 5);
+    }
+
+    #[test]
+    fn play_matches_a_full_search_when_it_sees_the_end() {
+        let conflict = complex_works_conflict();
+        let strategy = SolverStrategy::DepthLimited(100);
+        let searched = Solver::engage(&conflict, strategy);
+        let played = Solver::play(&conflict, strategy, MAX_ROUNDS);
+        assert_eq!(played.outcome, searched.outcome);
+        assert_eq!(played.timeline.len(), searched.timeline.len());
+        assert!(played.evaluations >= searched.evaluations);
+    }
+
+    #[test]
+    fn play_stops_at_the_round_limit() {
+        let played = Solver::play(&simple_conflict(), SolverStrategy::DepthLimited(2), 1);
+        assert!(matches!(played.outcome, OutcomeType::Unknown(_)));
+        assert!(played.timeline.iter().all(|e| e.round == 1));
+        assert_eq!(played.timeline.len(), 2);
+    }
+
+    #[test]
+    fn play_of_a_decided_conflict_is_empty() {
+        let mut villains = build_simple_villain_party();
+        villains.members[0].health = 0.0;
+        let conflict = Conflict::new(build_default_hero_party(false, 20.0, 6), villains);
+        let played = Solver::play(
+            &conflict,
+            SolverStrategy::IterativeDeepening(10),
+            MAX_ROUNDS,
+        );
+        assert!(played.timeline.is_empty());
+        assert!(matches!(played.outcome, OutcomeType::Win(_)));
     }
 
     #[test]

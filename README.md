@@ -89,6 +89,9 @@ Every task takes extra flags after `--`, e.g. `task run:brawl -- --seed 42 --fas
 - `--seed N` replays a fight; `--depth N` sets how many actions ahead the tactician looks (1–40,
   default 10). Large fights get slow above about 16.
 
+Every combatant searches anew on their turn, so a fight plays on until one side wins or escapes,
+however far that is beyond the lookahead. After 50 rounds it is called undecided.
+
 ## Rules of ~~Engagement~~ the Game
 
 - [x] Two factions are fighting each other in rounds. In every round each combatant acts once,
