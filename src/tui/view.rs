@@ -136,7 +136,6 @@ pub struct LineupView<'a> {
 }
 
 /// Draws the lineup; `ready` once the tactician has solved the fight.
-#[allow(dead_code)] // wired into the event loop in a later commit
 pub fn draw_lineup(frame: &mut Frame, lineup: &LineupView, ready: bool) {
     // The start state is the fight's opening frame: an empty timeline shows it.
     let outcome = Outcome {

@@ -3,6 +3,8 @@
 pub mod app;
 #[allow(dead_code)] // wired into the event loop in a later commit
 pub mod menu;
+#[allow(dead_code)] // wired into the event loop in a later commit
+pub mod session;
 pub mod view;
 
 use app::{App, Key};
