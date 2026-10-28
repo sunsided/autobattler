@@ -14,6 +14,8 @@ mod conflict;
 mod narration;
 mod party;
 mod party_member;
+mod rng;
+mod roster;
 mod scenario;
 mod solver;
 mod utility_value;
