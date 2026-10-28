@@ -64,7 +64,7 @@ Options:
   --seed N               seed for stats and names; default: from the clock
   --depth N              search depth in actions (1-40, default 10; slow above ~16)
   --list-scenarios       list the presets
-  --fast                 print the whole log at once instead of playing it back live
+  --fast                 print the whole text log at once (no TUI, no pauses)
   --no-explain           leave out the tactician notes
   --plain                print the text log instead of the TUI
   --help                 print this help";

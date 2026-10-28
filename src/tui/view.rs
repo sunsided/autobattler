@@ -220,16 +220,18 @@ fn initiative_line<'a>(app: &App, fight: &'a FightView, width: u16) -> Line<'a> 
     if line.width() <= width {
         return line;
     }
-    let mut line = join("▸");
+    let compact = join("▸");
+    if compact.width() <= width {
+        return compact;
+    }
+    let mut line = compact;
     while line.width() > width.saturating_sub(1) && !line.spans.is_empty() {
         line.spans.pop();
     }
     if line.spans.last().is_some_and(|span| span.content == "▸") {
         line.spans.pop();
     }
-    if line.width() < join("▸").width() {
-        line.spans.push(Span::raw("…"));
-    }
+    line.spans.push(Span::raw("…"));
     line
 }
 
@@ -252,10 +254,17 @@ fn draw_standoff(frame: &mut Frame, area: Rect, stride: u16, app: &App, fight: &
     let row = |member: usize| inner.y + member as u16 * stride;
 
     let state = fight.state(app.shown());
+    // Where line 1 of the hero cards ends and that of the villain cards starts.
+    let (mut hero_end, mut villain_x) = (inner.x, band_x + BAND);
     for party in [&state.initiator, &state.opponent] {
         let hero = party.id == fight.start.initiator.id;
-        let cards = party_cards(party, app, fight);
-        let width = cards.iter().map(|(l1, _)| l1.width()).max().unwrap_or(0) as u16;
+        let (cards, width) = party_cards(party, app, fight);
+        let width = width as u16;
+        if hero {
+            hero_end = (inner.x + width).min(band_x);
+        } else {
+            villain_x = inner.right().saturating_sub(width).max(band_x + BAND);
+        }
         for (i, (line1, line2)) in cards.iter().enumerate() {
             let y = row(i);
             if y >= inner.bottom() {
@@ -264,8 +273,7 @@ fn draw_standoff(frame: &mut Frame, area: Rect, stride: u16, app: &App, fight: &
             if hero {
                 buffer.set_line(inner.x, y, line1, band_x - inner.x);
             } else {
-                let x = inner.right().saturating_sub(width).max(band_x + BAND);
-                buffer.set_line(x, y, line1, inner.right() - x);
+                buffer.set_line(villain_x, y, line1, inner.right() - villain_x);
             }
             if y + 1 >= inner.bottom() {
                 break;
@@ -283,6 +291,8 @@ fn draw_standoff(frame: &mut Frame, area: Rect, stride: u16, app: &App, fight: &
         .fg(fight.color(&event.actor))
         .add_modifier(Modifier::BOLD);
     let hero = fight.is_hero(&event.actor);
+    // Everything sits one column off the card it belongs to: an arrow's head
+    // off its target's card, a flight marker off its actor's card.
     let (text, y, x) = match &event.action {
         AppliedAction::Targeted(targeted) => {
             let Action::SimpleAttack(attack) = &targeted.action;
@@ -292,7 +302,11 @@ fn draw_standoff(frame: &mut Frame, area: Rect, stride: u16, app: &App, fight: &
                 format!("◀── {} ──", attack.damage)
             };
             let width = Line::from(text.as_str()).width() as u16;
-            let x = band_x + BAND.saturating_sub(width) / 2;
+            let x = if hero {
+                villain_x.saturating_sub(width + 1)
+            } else {
+                hero_end + 1
+            };
             (text, row(targeted.target.member_id), x)
         }
         AppliedAction::Flee | AppliedAction::Retreat => {
@@ -301,7 +315,7 @@ fn draw_standoff(frame: &mut Frame, area: Rect, stride: u16, app: &App, fight: &
             } else {
                 "⚑"
             };
-            let x = if hero { band_x + 1 } else { band_x + BAND - 2 };
+            let x = if hero { hero_end + 1 } else { villain_x - 2 };
             (marker.to_string(), row(event.actor.member_id), x)
         }
     };
@@ -311,8 +325,16 @@ fn draw_standoff(frame: &mut Frame, area: Rect, stride: u16, app: &App, fight: &
 }
 
 /// Builds the two card lines for every member of `party`, padded so that
-/// names and bars line up within the party.
-fn party_cards<'a>(party: &Party, app: &App, fight: &'a FightView) -> Vec<(Line<'a>, Line<'a>)> {
+/// names and bars line up within the party, and returns them with the width
+/// of line 1.
+///
+/// That width comes from the party's names and starting health alone, so a
+/// card keeps its place however the fight goes.
+fn party_cards<'a>(
+    party: &Party,
+    app: &App,
+    fight: &'a FightView,
+) -> (Vec<(Line<'a>, Line<'a>)>, usize) {
     let name_width = fight.names[party.id]
         .iter()
         .map(|n| n.chars().count())
@@ -351,6 +373,8 @@ fn party_cards<'a>(party: &Party, app: &App, fight: &'a FightView) -> Vec<(Line<
                 Span::styled(format!("{:<name_width$}", fight.name(&p)), name_style),
                 Span::raw(" "),
             ];
+            // A killing blow leaves no health cells to flash red, so the
+            // target shows `✝ fallen` right away instead.
             if member.is_dead() {
                 line1.push(Span::raw("✝ fallen"));
             } else if member.fled {
@@ -401,13 +425,15 @@ fn party_cards<'a>(party: &Party, app: &App, fight: &'a FightView) -> Vec<(Line<
         })
         .collect();
 
-    // Pad line 1 so right-aligned villain cards keep their names in a column.
-    let width = cards.iter().map(|(l1, _)| l1.width()).max().unwrap_or(0);
+    // Pad line 1 to the width of a full card (name, bar and `hp/max` at the
+    // widest), so right-aligned villain cards keep their names in a column
+    // and `✝ fallen` or `↩ fled` take the room of the bar.
+    let width = name_width + 1 + BAR_CELLS + 1 + max_width + 1 + max_width;
     for (line1, _) in &mut cards {
-        let pad = width - line1.width();
+        let pad = width.saturating_sub(line1.width());
         line1.push_span(Span::raw(" ".repeat(pad)));
     }
-    cards
+    (cards, width)
 }
 
 fn draw_log(frame: &mut Frame, area: Rect, app: &App, fight: &FightView) {
@@ -429,9 +455,70 @@ fn draw_log(frame: &mut Frame, area: Rect, app: &App, fight: &FightView) {
                 .filter(|line| !line.is_empty()),
         );
     }
-    let skip = lines.len().saturating_sub(inner.height as usize);
-    let lines: Vec<Line> = lines.into_iter().skip(skip).map(Line::from).collect();
-    frame.render_widget(Paragraph::new(lines), inner);
+    let rows: Vec<String> = lines
+        .iter()
+        .flat_map(|line| wrap(line, usize::from(inner.width)))
+        .collect();
+    let skip = rows.len().saturating_sub(inner.height as usize);
+    let rows: Vec<Line> = rows.into_iter().skip(skip).map(Line::from).collect();
+    frame.render_widget(Paragraph::new(rows), inner);
+}
+
+/// Display width of `text`, measured the way the buffer lays it out.
+fn display_width(text: &str) -> usize {
+    Span::raw(text).width()
+}
+
+/// Wraps `line` into rows of at most `width` columns, breaking after words
+/// where it can. Continuation rows hang two columns deeper than the line's own
+/// indent.
+fn wrap(line: &str, width: usize) -> Vec<String> {
+    if display_width(line) <= width || width == 0 {
+        return vec![line.to_string()];
+    }
+    let lead = line.len() - line.trim_start().len();
+    let mut indent = format!("{}  ", &line[..lead]);
+    if display_width(&indent) >= width / 2 {
+        indent.clear();
+    }
+
+    let mut rows = Vec::new();
+    let mut prefix = "";
+    let mut rest = line;
+    // On the first row, a break inside the leading whitespace is no break.
+    let mut keep = lead;
+    loop {
+        let room = width - display_width(prefix);
+        if display_width(rest) <= room {
+            rows.push(format!("{prefix}{rest}"));
+            return rows;
+        }
+        // The longest start of `rest` that fits, as a byte offset.
+        let mut fit = 0;
+        let mut used = 0;
+        for (i, c) in rest.char_indices() {
+            let w = display_width(c.encode_utf8(&mut [0; 4]));
+            if used + w > room {
+                break;
+            }
+            used += w;
+            fit = i + c.len_utf8();
+        }
+        let space = if rest[fit..].starts_with(' ') {
+            Some(fit)
+        } else {
+            rest[..fit].rfind(' ')
+        };
+        let cut = match space {
+            Some(space) if space > keep => space,
+            // One word wider than the row: break inside it.
+            _ => fit.max(rest.chars().next().map_or(1, char::len_utf8)),
+        };
+        rows.push(format!("{prefix}{}", rest[..cut].trim_end()));
+        rest = rest[cut..].trim_start();
+        prefix = &indent;
+        keep = 0;
+    }
 }
 
 /// Renders one frame and returns its cell symbols row by row, with trailing
@@ -686,6 +773,103 @@ mod tests {
         let nothing = text.find("Nothing happens.").expect(&text);
         let stats = text.find("evaluations").expect(&text);
         assert!(nothing < stats, "{text}");
+    }
+
+    #[test]
+    fn initiative_bar_keeps_a_compact_bar_that_fits_exactly() {
+        let f = four_versus_four();
+        let app = f.app(1, true);
+        let view = f.view();
+        let text = |line: Line| {
+            line.spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<String>()
+        };
+        let compact = text(initiative_line(&app, &view, 200)).replace(" ▸ ", "▸");
+        let exact = display_width(&compact) as u16;
+        assert_eq!(text(initiative_line(&app, &view, exact)), compact);
+        let trimmed = text(initiative_line(&app, &view, exact - 1));
+        assert!(trimmed.ends_with('…'), "{trimmed}");
+        assert!(display_width(&trimmed) < usize::from(exact), "{trimmed}");
+    }
+
+    #[test]
+    fn villain_cards_keep_their_column() {
+        let f = ambush();
+        let column = |shown: usize| {
+            let text = f.render(&f.app(shown, true), 80, 24);
+            let line = text
+                .lines()
+                .find(|l| l.contains("Ziuon "))
+                .unwrap()
+                .to_string();
+            line.chars().position(|c| c == 'Z').unwrap()
+        };
+        let first = column(0);
+        for shown in 1..=f.outcome.timeline.len() {
+            assert_eq!(column(shown), first, "after {shown} actions");
+        }
+    }
+
+    #[test]
+    fn wrap_hangs_continuation_rows_and_fits_the_width() {
+        let line = "   ↳ tactician: expects they escape before the parting blows land";
+        let rows = wrap(line, 30);
+        assert!(rows.len() > 1, "{rows:?}");
+        for row in &rows {
+            assert!(display_width(row) <= 30, "{rows:?}");
+        }
+        assert!(rows[0].starts_with("   ↳ "), "{rows:?}");
+        for row in &rows[1..] {
+            assert!(
+                row.starts_with("     ") && !row.starts_with("      "),
+                "{rows:?}"
+            );
+        }
+        let joined: Vec<&str> = rows.iter().flat_map(|r| r.split_whitespace()).collect();
+        assert_eq!(
+            joined.join(" "),
+            line.split_whitespace().collect::<Vec<_>>().join(" ")
+        );
+        assert_eq!(wrap("short", 30), vec!["short".to_string()]);
+        // A word wider than the row is broken inside.
+        assert!(wrap(&"x".repeat(25), 10)
+            .iter()
+            .all(|r| display_width(r) <= 10));
+    }
+
+    #[test]
+    fn long_log_lines_wrap_inside_the_panel() {
+        let f = four_versus_four();
+        let intro = f
+            .beats
+            .iter()
+            .find(|b| b.kind == BeatKind::Intro)
+            .expect("an intro beat")
+            .lines
+            .iter()
+            .find(|l| display_width(l) > 78)
+            .expect("an intro line wider than the panel")
+            .clone();
+        let text = f.render(&f.app(0, true), 80, 24);
+        let rows: Vec<&str> = text
+            .lines()
+            .skip_while(|l| !l.starts_with("┌ log"))
+            .skip(1)
+            .take_while(|l| !l.starts_with('└'))
+            .collect();
+        for row in &rows {
+            assert!(display_width(row) <= 80, "{text}");
+            assert!(row.starts_with('│') && row.ends_with('│'), "{text}");
+        }
+        let words: Vec<&str> = rows
+            .iter()
+            .map(|r| r.trim_start_matches('│').trim_end_matches('│'))
+            .flat_map(str::split_whitespace)
+            .collect();
+        let expected: Vec<&str> = intro.split_whitespace().collect();
+        assert_eq!(words[..expected.len()], expected[..], "{text}");
     }
 
     #[test]

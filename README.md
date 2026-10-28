@@ -59,7 +59,7 @@ back in the TUI (see below), `task run -- --plain` prints the text log instead, 
 ## Watching a fight
 
 On a terminal, `task run` opens the fight in a TUI: the standoff frame with both sides' health bars
-and the log beside them. Pipe the output, or pass `--fast` or `--plain` (`task run:plain`), and the
+and the log below them. Pipe the output, or pass `--fast` or `--plain` (`task run:plain`), and the
 text log is printed instead. This is what the frame looks like at the first action:
 
 ```
@@ -69,7 +69,7 @@ Brull(6) ▸ Molphige(5) ▸ Ziuon(3)
 │Brull ██████████ 20/20                               Ziuon    ██████████ 15/15│
 │fists 10 · speed 6                                           stick 5 · speed 3│
 │                                                                              │
-│                                  ── 10 ──▶          Molphige ✝ fallen        │
+│                                           ── 10 ──▶ Molphige ✝ fallen        │
 │                                                            fists 20 · speed 5│
 └──────────────────────────────────────────────────────────────────────────────┘
 ┌ log ─────────────────────────────────────────────────────────────────────────┐

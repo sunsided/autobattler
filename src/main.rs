@@ -1,10 +1,11 @@
 use crate::cli::{Command, UiMode};
 use crate::narration::playback::play;
-use crate::narration::{NarrationOptions, Narrator};
+use crate::narration::{BeatKind, NarrationOptions, Narrator};
 use crate::roster::Roster;
 use crate::scenario::{Fight, Preset, Setup};
 use crate::solver::{Solver, SolverStrategy, MAX_ROUNDS};
 use crate::tui::view::FightView;
+use crate::tui::TuiError;
 use std::io::{stdout, IsTerminal};
 use std::process::ExitCode;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -88,9 +89,31 @@ fn main() -> ExitCode {
             scenario,
             seed,
         };
+        // Leaving the alternate screen clears the fight; print the result,
+        // seed included, so it stays in the scrollback.
+        let print_result = || {
+            colored::control::unset_override();
+            let closing = narrate(options.explain);
+            for beat in closing
+                .iter()
+                .filter(|b| matches!(b.kind, BeatKind::Outro | BeatKind::Stats))
+            {
+                for line in &beat.lines {
+                    println!("{line}");
+                }
+            }
+        };
         match tui::run(fight, options.explain) {
-            Ok(()) => return ExitCode::SUCCESS,
-            Err(error) => {
+            Ok(()) => {
+                print_result();
+                return ExitCode::SUCCESS;
+            }
+            Err(TuiError::Terminal(error)) => {
+                eprintln!("terminal error: {error}");
+                print_result();
+                return ExitCode::FAILURE;
+            }
+            Err(TuiError::Setup(error)) => {
                 eprintln!("TUI unavailable ({error}); showing the text log.");
                 colored::control::unset_override();
             }

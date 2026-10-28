@@ -10,7 +10,7 @@ use ratatui::crossterm::terminal::{
 };
 use ratatui::crossterm::{cursor, execute};
 use ratatui::{backend::CrosstermBackend, Terminal};
-use std::io::{self, stdout};
+use std::io::{self, stdout, Stdout};
 use std::time::{Duration, Instant};
 use view::FightView;
 
@@ -51,21 +51,42 @@ impl Drop for TerminalGuard {
     }
 }
 
+/// Why [`run`] stopped early.
+#[derive(Debug)]
+pub enum TuiError {
+    /// The terminal could not be set up; nothing was drawn.
+    Setup(io::Error),
+    /// Reading keys or drawing failed after the fight was on screen.
+    Terminal(io::Error),
+}
+
 /// Plays the fight in the terminal until the user quits.
-///
-/// An error means the terminal could not be set up or drawn to.
-pub fn run(fight: FightView, explain: bool) -> io::Result<()> {
+pub fn run(fight: FightView, explain: bool) -> Result<(), TuiError> {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         restore();
         previous(info);
     }));
 
-    enable_raw_mode()?;
-    let _guard = TerminalGuard;
-    execute!(stdout(), EnterAlternateScreen, cursor::Hide)?;
-    let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
+    let (_guard, mut terminal) = setup().map_err(TuiError::Setup)?;
+    play(&mut terminal, &fight, explain).map_err(TuiError::Terminal)
+}
 
+/// Enters raw mode and the alternate screen; the guard leaves them again.
+fn setup() -> io::Result<(TerminalGuard, Terminal<CrosstermBackend<Stdout>>)> {
+    enable_raw_mode()?;
+    let guard = TerminalGuard;
+    execute!(stdout(), EnterAlternateScreen, cursor::Hide)?;
+    let terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
+    Ok((guard, terminal))
+}
+
+/// Runs the event loop until the user quits.
+fn play(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    fight: &FightView,
+    explain: bool,
+) -> io::Result<()> {
     let rounds = fight.outcome.timeline.iter().map(|e| e.round).collect();
     let mut app = App::new(rounds, explain);
     let mut dirty = true;
@@ -89,7 +110,7 @@ pub fn run(fight: FightView, explain: bool) -> io::Result<()> {
         last = now;
         dirty |= app.shown() != shown || app.flashing() != flashing;
         if dirty {
-            terminal.draw(|frame| view::draw(frame, &app, &fight))?;
+            terminal.draw(|frame| view::draw(frame, &app, fight))?;
             dirty = false;
         }
     }
