@@ -15,6 +15,8 @@ pub struct Options {
     pub fast: bool,
     /// Adds tactician notes explaining each choice.
     pub explain: bool,
+    /// Prints the text log instead of the TUI.
+    pub plain: bool,
     /// Which encounter to fight.
     pub setup: Setup,
     /// How generated members get their stats; `None` when not given.
@@ -30,6 +32,7 @@ impl Default for Options {
         Self {
             fast: false,
             explain: true,
+            plain: false,
             setup: Setup::Preset(Preset::Ambush),
             roster: None,
             seed: None,
@@ -63,6 +66,7 @@ Options:
   --list-scenarios       list the presets
   --fast                 print the whole log at once instead of playing it back live
   --no-explain           leave out the tactician notes
+  --plain                print the text log instead of the TUI
   --help                 print this help";
 
 /// Parses the arguments, without the program name.
@@ -96,6 +100,10 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, String>
             }
             "--no-explain" => {
                 options.explain = false;
+                Ok(())
+            }
+            "--plain" => {
+                options.plain = true;
                 Ok(())
             }
             "--scenario" => required(&flag, value()).and_then(|name| {
@@ -178,6 +186,26 @@ pub fn delays_enabled(fast: bool, stdout_is_terminal: bool) -> bool {
     !fast && stdout_is_terminal
 }
 
+/// How the fight is shown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum UiMode {
+    /// The interactive terminal view.
+    Tui,
+    /// The plain text log.
+    Text,
+}
+
+/// Picks the TUI only for an interactive terminal without `--plain` or `--fast`.
+#[allow(dead_code)]
+pub fn ui_mode(plain: bool, fast: bool, stdout_is_terminal: bool) -> UiMode {
+    if stdout_is_terminal && !plain && !fast {
+        UiMode::Tui
+    } else {
+        UiMode::Text
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -209,6 +237,32 @@ mod tests {
         let options = run(&["--fast", "--no-explain"]);
         assert!(options.fast);
         assert!(!options.explain);
+    }
+
+    #[test]
+    fn plain_flag() {
+        assert!(!run(&[]).plain);
+        assert!(run(&["--plain"]).plain);
+    }
+
+    #[test]
+    fn ui_mode_truth_table() {
+        for plain in [false, true] {
+            for fast in [false, true] {
+                for terminal in [false, true] {
+                    let expected = if !plain && !fast && terminal {
+                        UiMode::Tui
+                    } else {
+                        UiMode::Text
+                    };
+                    assert_eq!(
+                        ui_mode(plain, fast, terminal),
+                        expected,
+                        "plain={plain} fast={fast} terminal={terminal}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]
