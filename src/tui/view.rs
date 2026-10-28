@@ -33,7 +33,6 @@ const HERO: Color = Color::Blue;
 const VILLAIN: Color = Color::Magenta;
 
 /// Everything about a solved fight the view needs, besides the playback state.
-#[allow(dead_code)]
 pub struct FightView<'a> {
     /// The state before the first event.
     pub start: &'a Conflict,
@@ -94,7 +93,6 @@ impl FightView<'_> {
 }
 
 /// Draws one frame for the playback position of `app`.
-#[allow(dead_code)]
 pub fn draw(frame: &mut Frame, app: &App, fight: &FightView) {
     let area = frame.area();
     if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {

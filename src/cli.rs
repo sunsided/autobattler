@@ -188,7 +188,6 @@ pub fn delays_enabled(fast: bool, stdout_is_terminal: bool) -> bool {
 
 /// How the fight is shown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum UiMode {
     /// The interactive terminal view.
     Tui,
@@ -197,7 +196,6 @@ pub enum UiMode {
 }
 
 /// Picks the TUI only for an interactive terminal without `--plain` or `--fast`.
-#[allow(dead_code)]
 pub fn ui_mode(plain: bool, fast: bool, stdout_is_terminal: bool) -> UiMode {
     if stdout_is_terminal && !plain && !fast {
         UiMode::Tui

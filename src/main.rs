@@ -1,9 +1,10 @@
-use crate::cli::Command;
+use crate::cli::{Command, UiMode};
 use crate::narration::playback::play;
 use crate::narration::{NarrationOptions, Narrator};
 use crate::roster::Roster;
-use crate::scenario::{Fight, Preset};
+use crate::scenario::{Fight, Preset, Setup};
 use crate::solver::{Solver, SolverStrategy, MAX_ROUNDS};
+use crate::tui::view::FightView;
 use std::io::{stdout, IsTerminal};
 use std::process::ExitCode;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -49,18 +50,54 @@ fn main() -> ExitCode {
     let roster = options.roster.unwrap_or(Roster::Random);
     let Fight { conflict, names } = scenario::build(options.setup, roster, seed);
 
+    let mode = cli::ui_mode(options.plain, options.fast, stdout().is_terminal());
+    let tui = mode == UiMode::Tui;
+    if tui {
+        // The TUI draws its own colors; keep escape codes out of the beats.
+        colored::control::set_override(false);
+        if conflict.initiator.len() + conflict.opponent.len() > 4 {
+            eprintln!("thinking…");
+        }
+    }
+
     let strategy = SolverStrategy::IterativeDeepening(options.depth);
     let outcome = Solver::play(&conflict, strategy, MAX_ROUNDS);
 
-    let narrator = Narrator::new(
-        &names,
-        NarrationOptions {
-            explain: options.explain,
-            seed: Some(seed),
-        },
-    );
-    let beats = narrator.narrate(&conflict, &outcome);
+    let narrate = |explain: bool| {
+        Narrator::new(
+            &names,
+            NarrationOptions {
+                explain,
+                seed: Some(seed),
+            },
+        )
+        .narrate(&conflict, &outcome)
+    };
 
+    if tui {
+        let beats = narrate(true);
+        let scenario = match options.setup {
+            Setup::Preset(preset) => preset.name().to_string(),
+            Setup::Custom { heroes, villains } => format!("custom {heroes}v{villains}"),
+        };
+        let fight = FightView {
+            start: &conflict,
+            outcome: &outcome,
+            names: &names,
+            beats: &beats,
+            scenario,
+            seed,
+        };
+        match tui::run(fight, options.explain) {
+            Ok(()) => return ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("TUI unavailable ({error}); showing the text log.");
+                colored::control::unset_override();
+            }
+        }
+    }
+
+    let beats = narrate(options.explain);
     let delays = cli::delays_enabled(options.fast, stdout().is_terminal());
     let pause = |duration: Duration| {
         if delays {

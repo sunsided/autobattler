@@ -15,7 +15,6 @@ const ACTION_DELAY: Duration = Duration::from_millis(400);
 const FLASH: Duration = Duration::from_millis(150);
 
 /// A user command, already decoded from the terminal.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Key {
     TogglePause,
@@ -28,7 +27,6 @@ pub enum Key {
 }
 
 /// Playback position and settings over a timeline of events.
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct App {
     rounds: Vec<usize>,
@@ -43,7 +41,6 @@ pub struct App {
     quit: bool,
 }
 
-#[allow(dead_code)]
 impl App {
     /// `rounds[i]` is the round of event `i`.
     pub fn new(rounds: Vec<usize>, explain: bool) -> Self {
