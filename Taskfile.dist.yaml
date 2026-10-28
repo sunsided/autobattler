@@ -24,6 +24,40 @@ tasks:
     cmds:
       - cargo run {{.PROFILE_FLAG}} -- {{.CLI_ARGS}}
 
+  run:scenarios:
+    desc: List the scenario presets
+    cmds:
+      - task: run
+        vars: { CLI_ARGS: '--list-scenarios' }
+
+  run:duel:
+    desc: Fight a 1v1 duel (extra flags after --, e.g. -- --seed 7)
+    cmds:
+      - task: run
+        vars: { CLI_ARGS: '--scenario duel {{.CLI_ARGS}}' }
+
+  run:skirmish:
+    desc: Fight a 2v3 skirmish (extra flags after --)
+    cmds:
+      - task: run
+        vars: { CLI_ARGS: '--scenario skirmish {{.CLI_ARGS}}' }
+
+  run:brawl:
+    desc: Fight a 3v4 brawl (extra flags after --)
+    cmds:
+      - task: run
+        vars: { CLI_ARGS: '--scenario brawl {{.CLI_ARGS}}' }
+
+  run:random:
+    desc: Fight generated parties (HEROES=2 VILLAINS=3 [SEED=N], extra flags after --)
+    vars:
+      HEROES: '{{ .HEROES | default "2" }}'
+      VILLAINS: '{{ .VILLAINS | default "3" }}'
+      SEED_FLAG: '{{ if .SEED }}--seed {{.SEED}}{{ end }}'
+    cmds:
+      - task: run
+        vars: { CLI_ARGS: '--heroes {{.HEROES}} --villains {{.VILLAINS}} {{.SEED_FLAG}} {{.CLI_ARGS}}' }
+
   build:
     desc: Build the crate (PROFILE=release for optimized build)
     deps: [cargo:check-installed]

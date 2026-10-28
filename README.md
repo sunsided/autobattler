@@ -12,8 +12,8 @@ This is definitely not rocket science being done here. Expect more minimax than 
 
 ## Example outcome
 
-The following is an example of how it may unfold. (Names are generated at random on every run;
-the ones below are the fixed names the narration tests use.)
+The following is an example of how the default ambush may unfold. (Names come from the seed, so
+they change between runs; the ones below are the fixed names the narration tests use.)
 
 We see the hero party, consisting of _Brull_, as well as the enemy party, consisting of _Ziuon_ and _Molphige_.
 _Ziuon_ deals only 5 damage with their stick, but _Molphige_ deals 20 with their fists, which will take
@@ -64,6 +64,30 @@ Ziuon sounds the retreat and flees!
 A line with search statistics follows at the end. Run it with `task run`; the log plays back live
 in a terminal, `task run -- --fast` prints it all at once and `task run -- --no-explain` leaves out
 the tactician notes.
+
+## Choosing a fight
+
+The default fight is the ambush above. Other fights generate their parties from a seed: the same
+seed builds the same stats and names on every run and machine. Runs without `--seed` pick one from
+the clock and print it in the statistics line, so a good fight can be replayed.
+
+| Command | Fight |
+|---|---|
+| `task run:scenarios` | List the presets |
+| `task run:duel` | 1 hero vs 1 villain |
+| `task run:skirmish` | 2 heroes vs 3 villains |
+| `task run:brawl` | 3 heroes vs 4 villains |
+| `task run:random HEROES=4 VILLAINS=2 SEED=7` | Any sizes from 1 to 4 per side; `SEED` is optional |
+
+Every task takes extra flags after `--`, e.g. `task run:brawl -- --seed 42 --fast`. The flags:
+
+- `--scenario NAME` picks a preset; `--heroes N` / `--villains N` generate custom sizes instead
+  (a missing side defaults to 2 heroes or 3 villains).
+- `--roster random` (default) rolls 10–25 health, fists (5–20 damage) or a stick (4–12) and speed
+  1–9; `--roster archetypes` makes every member a Brawler, Fencer or Scout (heroes) or a Thug, Brute
+  or Lurker (villains). The ambush keeps its fixed stats.
+- `--seed N` replays a fight; `--depth N` sets how many actions ahead the tactician looks (1–40,
+  default 10). Large fights get slow above about 16.
 
 ## Rules of ~~Engagement~~ the Game
 
