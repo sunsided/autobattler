@@ -21,4 +21,4 @@ Brull(6) ▸ Molphige(5)
 │🏁 Ziuon fled; Brull holds the field after 1 round.                           │
 │(seed 7, 221 evaluations, 44 cuts, depth 8, 1.5ms)                            │
 └──────────────────────────────────────────────────────────────────────────────┘
-space pause · ← → step · +/- speed · t tactician · q quit
+space pause · ← → step · +/- speed · t tactician · b back · q quit

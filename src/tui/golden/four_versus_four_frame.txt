@@ -21,4 +21,4 @@ Thrakgash(8)▸Halor(7)▸Halin(7)▸Kerus(7)▸Elus(6)▸Balphige(4)▸Kramul(4
 │       alt: punch Halin → unclear  (≥ 6)                                      │
 │       +5 more                                                                │
 └──────────────────────────────────────────────────────────────────────────────┘
-space pause · ← → step · +/- speed · t tactician · q quit
+space pause · ← → step · +/- speed · t tactician · b back · q quit

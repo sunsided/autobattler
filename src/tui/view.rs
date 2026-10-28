@@ -9,7 +9,7 @@ use crate::conflict::Conflict;
 use crate::narration::panel::{filled_cells, morale_tag};
 use crate::narration::{log_lines, Beat, BeatKind};
 use crate::party::{Participant, Party};
-use crate::solver::{Event, Outcome};
+use crate::solver::{Event, Outcome, OutcomeType};
 use crate::tui::app::App;
 use crate::weapon::Weapon;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
@@ -17,11 +17,13 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
+use std::time::Duration;
 
 const MIN_WIDTH: u16 = 80;
 const MIN_HEIGHT: u16 = 24;
 const TOO_SMALL: &str = "terminal too small (needs 80×24)";
-const KEY_BAR: &str = "space pause · ← → step · +/- speed · t tactician · q quit";
+const KEY_BAR: &str = "space pause · ← → step · +/- speed · t tactician · b back · q quit";
+const LINEUP_KEY_BAR: &str = "space begin · b back · q quit";
 const PARTING_PREFIX: &str = "parting blows ▸ ";
 /// Cells in a card's health bar.
 const BAR_CELLS: usize = 10;
@@ -92,8 +94,84 @@ impl FightView<'_> {
     }
 }
 
+/// What differs between the fight and the lineup around the shared standoff.
+struct Chrome {
+    header_left: String,
+    log: Vec<String>,
+    keys: &'static str,
+}
+
 /// Draws one frame for the playback position of `app`.
 pub fn draw(frame: &mut Frame, app: &App, fight: &FightView) {
+    let round = fight
+        .current(app.shown())
+        .map_or(fight.start.round, |e| e.round);
+    let state = if app.playing() { "▶" } else { "⏸" };
+    let chrome = Chrome {
+        header_left: format!(
+            "Round {round} · action {}/{} · {state} {}×",
+            app.shown(),
+            app.len(),
+            app.speed()
+        ),
+        log: fight_log(app, fight),
+        keys: KEY_BAR,
+    };
+    draw_screen(frame, app, fight, &chrome);
+}
+
+/// The lineup before a fight: everything [`FightView`] has to show at the start
+/// state, with an intro line in the log.
+pub struct LineupView<'a> {
+    /// The state the fight starts from.
+    pub start: &'a Conflict,
+    /// `names[party_id][member_id]`.
+    pub names: &'a [Vec<String>],
+    /// The line that introduces the fight.
+    pub intro: &'a str,
+    /// The scenario label for the header.
+    pub scenario: String,
+    /// The seed the fight was built from.
+    pub seed: u64,
+}
+
+/// Draws the lineup; `ready` once the tactician has solved the fight.
+#[allow(dead_code)] // wired into the event loop in a later commit
+pub fn draw_lineup(frame: &mut Frame, lineup: &LineupView, ready: bool) {
+    // The start state is the fight's opening frame: an empty timeline shows it.
+    let outcome = Outcome {
+        outcome: OutcomeType::Remain(0.0),
+        timeline: Vec::new(),
+        evaluations: 0,
+        cuts: 0,
+        search_duration: Duration::ZERO,
+        max_visited_depth: 0,
+        depth_limited: false,
+    };
+    let fight = FightView {
+        start: lineup.start,
+        outcome: &outcome,
+        names: lineup.names,
+        beats: &[],
+        scenario: lineup.scenario.clone(),
+        seed: lineup.seed,
+    };
+    let (status, prompt) = if ready {
+        ("ready", "Press space to begin.")
+    } else {
+        ("tactician thinking…", "The tactician is thinking…")
+    };
+    let chrome = Chrome {
+        header_left: format!("Round {} · {status}", lineup.start.round),
+        log: vec![lineup.intro.to_string(), String::new(), prompt.to_string()],
+        keys: LINEUP_KEY_BAR,
+    };
+    draw_screen(frame, &App::new(Vec::new(), false), &fight, &chrome);
+}
+
+/// Header, initiative bar, standoff, log and key bar: the layout both screens
+/// share.
+fn draw_screen(frame: &mut Frame, app: &App, fight: &FightView, chrome: &Chrome) {
     if too_small(frame) {
         return;
     }
@@ -117,15 +195,15 @@ pub fn draw(frame: &mut Frame, app: &App, fight: &FightView) {
     ])
     .areas(area);
 
-    draw_header(frame, header, app, fight);
+    draw_header(frame, header, &chrome.header_left, fight);
     frame.render_widget(
         Paragraph::new(initiative_line(app, fight, initiative.width)),
         initiative,
     );
     draw_standoff(frame, standoff, stride, app, fight);
-    draw_log(frame, log, app, fight);
+    draw_log(frame, log, &chrome.log);
     frame.render_widget(
-        Paragraph::new(KEY_BAR).style(Style::new().add_modifier(Modifier::DIM)),
+        Paragraph::new(chrome.keys).style(Style::new().add_modifier(Modifier::DIM)),
         keys,
     );
 }
@@ -163,17 +241,7 @@ fn card_rows(fighters: u16, stride: u16) -> u16 {
     (fighters * stride).saturating_sub(stride - 2)
 }
 
-fn draw_header(frame: &mut Frame, area: Rect, app: &App, fight: &FightView) {
-    let round = fight
-        .current(app.shown())
-        .map_or(fight.start.round, |e| e.round);
-    let state = if app.playing() { "▶" } else { "⏸" };
-    let left = format!(
-        "Round {round} · action {}/{} · {state} {}×",
-        app.shown(),
-        app.len(),
-        app.speed()
-    );
+fn draw_header(frame: &mut Frame, area: Rect, left: &str, fight: &FightView) {
     let right = format!("{} · seed {}", fight.scenario, fight.seed);
     let bold = Style::new().add_modifier(Modifier::BOLD);
     frame.render_widget(Paragraph::new(left).style(bold), area);
@@ -446,11 +514,8 @@ fn party_cards<'a>(
     (cards, width)
 }
 
-fn draw_log(frame: &mut Frame, area: Rect, app: &App, fight: &FightView) {
-    let block = Block::bordered().title(" log ");
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-
+/// The log lines of the fight up to the playback position.
+fn fight_log(app: &App, fight: &FightView) -> Vec<String> {
     let mut lines = log_lines(fight.beats, app.shown(), app.explain());
     if app.finished() {
         // An empty timeline's "Nothing happens." belongs to no event.
@@ -465,6 +530,14 @@ fn draw_log(frame: &mut Frame, area: Rect, app: &App, fight: &FightView) {
                 .filter(|line| !line.is_empty()),
         );
     }
+    lines
+}
+
+fn draw_log(frame: &mut Frame, area: Rect, lines: &[String]) {
+    let block = Block::bordered().title(" log ");
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
     let rows: Vec<String> = lines
         .iter()
         .flat_map(|line| wrap(line, usize::from(inner.width)))
@@ -771,8 +844,74 @@ mod tests {
         let text = f.render(&f.app(1, true), 80, 24);
         assert_eq!(
             text.lines().last().unwrap(),
-            "space pause · ← → step · +/- speed · t tactician · q quit"
+            "space pause · ← → step · +/- speed · t tactician · b back · q quit"
         );
+    }
+
+    fn lineup_text(f: &Fixture, ready: bool, width: u16, height: u16) -> String {
+        let narrator = Narrator::new(
+            &f.names,
+            NarrationOptions {
+                explain: false,
+                seed: None,
+            },
+        );
+        let intro = narrator.intro(&f.start);
+        let lineup = LineupView {
+            start: &f.start,
+            names: &f.names,
+            intro: &intro,
+            scenario: f.scenario.clone(),
+            seed: f.seed,
+        };
+        render_with(width, height, |frame| draw_lineup(frame, &lineup, ready))
+    }
+
+    #[test]
+    fn lineup_thinking_frame() {
+        let text = lineup_text(&ambush(), false, 80, 24);
+        assert!(text.contains("Round 1 · tactician thinking…"), "{text}");
+        assert!(text.contains("The tactician is thinking…"), "{text}");
+        assert_eq!(
+            text.lines().last().unwrap(),
+            "space begin · b back · q quit"
+        );
+        assert_golden(&text, include_str!("golden/lineup_thinking_frame.txt"));
+    }
+
+    #[test]
+    fn lineup_ready_frame() {
+        let text = lineup_text(&ambush(), true, 80, 24);
+        assert!(text.contains("Round 1 · ready"), "{text}");
+        assert!(text.contains("Press space to begin."), "{text}");
+        assert_golden(&text, include_str!("golden/lineup_ready_frame.txt"));
+    }
+
+    #[test]
+    fn lineup_cards_match_the_opening_frame() {
+        let f = ambush();
+        let lineup = lineup_text(&f, true, 80, 24);
+        let app = App::new(f.outcome.timeline.iter().map(|e| e.round).collect(), true);
+        let fight = f.render(&app, 80, 24);
+        // Rows 2.. through the bottom border of the standoff.
+        let bottom = fight
+            .lines()
+            .position(|l| l.starts_with('└'))
+            .expect("standoff border");
+        let rows = |text: &str| {
+            text.lines()
+                .skip(1)
+                .take(bottom)
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(rows(&lineup), rows(&fight));
+    }
+
+    #[test]
+    fn lineup_too_small() {
+        let text = lineup_text(&ambush(), true, 60, 20);
+        assert_golden(&text, include_str!("golden/too_small_frame.txt"));
     }
 
     #[test]

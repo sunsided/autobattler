@@ -21,4 +21,4 @@ parting blows ▸ Brull(6) ▸ Molphige(5)
 │                                                                              │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
-space pause · ← → step · +/- speed · t tactician · q quit
+space pause · ← → step · +/- speed · t tactician · b back · q quit
