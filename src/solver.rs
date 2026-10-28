@@ -1,7 +1,8 @@
 use crate::action::{AppliedAction, TargetedAction};
-use crate::action_iterator::ActionIterator;
+use crate::action_iterator::{ActionIterator, TurnOptions};
 use crate::conflict::{Conflict, Turn};
 use crate::party::{Participant, Party};
+use crate::party_member::Morale;
 use crate::utility_value::get_utility;
 use crate::value::{combine_bound, Bound, Cutoff, TerminalState, Value};
 use log::trace;
@@ -282,9 +283,15 @@ impl Solver {
 
         if let Some(action) = node.action_iter.as_mut().and_then(|i| i.next()) {
             match action {
-                AppliedAction::Flee => {
+                AppliedAction::Flee | AppliedAction::Retreat => {
                     let mut current = current.clone();
-                    let fled = current.retreat();
+                    let fled = if action == AppliedAction::Flee {
+                        let actor = turn.actor.member_id;
+                        current.members[actor].fled = true;
+                        vec![actor]
+                    } else {
+                        current.retreat()
+                    };
 
                     // Create a new branch on the board.
                     let mut state = Self::rebuild_state(
@@ -377,7 +384,62 @@ impl Solver {
     fn actions_for(state: &Conflict, turn: &Turn) -> ActionIterator {
         let (current, opponent) = Self::parties_of(state, turn);
         let member_id = turn.actor.member_id;
-        ActionIterator::new_in(current.clone(), opponent.clone(), member_id..member_id + 1)
+        ActionIterator::new_in(
+            current.clone(),
+            opponent.clone(),
+            member_id..member_id + 1,
+            Self::turn_options(state, turn),
+        )
+    }
+
+    /// Determines which actions the combatant acting in `turn` may take.
+    ///
+    /// * A parting blow may only target the fighters who just fled.
+    /// * A fighter whose morale broke must flee, even if the party may not retreat.
+    /// * A `Tactical` fighter of a party that may retreat can attack, flee alone,
+    ///   or order the retreat if someone else on the field would follow.
+    /// * Everyone else attacks.
+    ///
+    /// Nobody flees or retreats once the enemy has left the field.
+    pub(crate) fn turn_options(state: &Conflict, turn: &Turn) -> TurnOptions {
+        let (current, opponent) = Self::parties_of(state, turn);
+        let attacks_only = TurnOptions {
+            attacks: true,
+            targets: None,
+            flee: false,
+            retreat: false,
+        };
+
+        if let Some(parting) = &state.parting {
+            return TurnOptions {
+                targets: Some(parting.fleeing.clone()),
+                ..attacks_only
+            };
+        }
+
+        let enemy_present = !opponent.is_gone();
+        let actor = &current.members[turn.actor.member_id];
+        if actor.must_flee(turn.round) {
+            return TurnOptions {
+                attacks: false,
+                flee: enemy_present,
+                ..attacks_only
+            };
+        }
+
+        if actor.morale == Morale::Tactical && current.can_retreat() {
+            let followers = current
+                .members
+                .iter()
+                .any(|m| m.id != actor.id && m.on_field() && m.morale != Morale::Never);
+            return TurnOptions {
+                flee: enemy_present,
+                retreat: enemy_present && followers,
+                ..attacks_only
+            };
+        }
+
+        attacks_only
     }
 
     /// Counts the actions available to the combatant acting in `turn`.
@@ -902,6 +964,7 @@ fn log_finish_iddfs(depth: usize) {
 mod tests {
     use super::*;
     use crate::action::Action;
+    use crate::action_iterator::TurnOptions;
     use crate::party_member::{Morale, PartyMember};
     use crate::weapon::{Fists, Stick, Weapon};
 
@@ -934,7 +997,8 @@ mod tests {
 
         // The hero kills Molphige. Fleeing later would let the hero's parting
         // blow finish Ziuon off, so he flees at once and survives it with 5
-        // health: 20 health * 0.1.
+        // health: 20 health * 0.1. With Molphige dead, Ziuon has nobody to
+        // order out, so he flees alone rather than retreating.
         let solution = Solver::engage(&conflict, SolverStrategy::DepthLimited(100));
         assert_eq!(solution.outcome, OutcomeType::Remain(2.0));
         assert_eq!(solution.len(), 3);
@@ -951,7 +1015,8 @@ mod tests {
         let solution = Solver::engage(&conflict, SolverStrategy::DepthLimited(100));
 
         // Fleeing in slot 0 still lets Molphige (slot 1) strike, which
-        // defeats the hero in one hit.
+        // defeats the hero in one hit. The villains' new ways out come after
+        // their attacks and are never generated: the first punch is lethal.
         assert_eq!(solution.outcome, OutcomeType::Lose(-20.0));
         assert_eq!(solution.len(), 2);
     }
@@ -974,6 +1039,8 @@ mod tests {
     fn slow_initiator_pays_parting_blows_when_fleeing() {
         // Order: Molphige(5), Ziuon(3), hero(1). Hero takes 20 + 5, flees from
         // the last slot, and both villains strike again: Retreat(-50 * 0.1).
+        // Fleeing villains would hand the hero a Remain, so they keep attacking;
+        // their extra options can only lower the fighting line, which already loses.
         let conflict = Conflict::new(
             build_default_hero_party(true, 60.0, 1),
             build_complex_villain_party(true, 15.0),
@@ -1175,8 +1242,170 @@ mod tests {
         );
         let solution = Solver::engage(&conflict, SolverStrategy::DepthLimited(100));
         assert_eq!(solution.timeline[0].bound, Bound::AtMost);
-        // Molphige had punch, stare and flee; only the punch was generated.
-        assert_eq!(solution.timeline[1].unexamined, 2);
+        // Molphige may punch or stare at the hero, flee alone, or order a
+        // retreat Ziuon would follow (both are Tactical and still on the field):
+        // four moves, only the punch was generated.
+        assert_eq!(solution.timeline[1].unexamined, 3);
+    }
+
+    fn fighter(id: usize, morale: Morale) -> PartyMember {
+        PartyMember {
+            id,
+            health: 20.0,
+            damage_taken: 0.0,
+            weapon: Weapon::Fists(Fists { damage: 10.0 }),
+            can_act: true,
+            speed: 6 - id as u32,
+            morale,
+            fled: false,
+        }
+    }
+
+    /// Options of hero member 0 in round 1, heroes given by morale.
+    fn hero_options(morales: &[Morale], can_retreat: bool) -> TurnOptions {
+        let heroes = Party {
+            id: 0,
+            members: morales
+                .iter()
+                .enumerate()
+                .map(|(id, &morale)| fighter(id, morale))
+                .collect(),
+            can_retreat,
+        };
+        let conflict = Conflict::new(heroes, build_simple_villain_party());
+        let turn = conflict.next_turn().expect("a turn");
+        assert_eq!(
+            turn.actor,
+            Participant {
+                party_id: 0,
+                member_id: 0
+            }
+        );
+        Solver::turn_options(&conflict, &turn)
+    }
+
+    fn options(attacks: bool, flee: bool, retreat: bool) -> TurnOptions {
+        TurnOptions {
+            attacks,
+            targets: None,
+            flee,
+            retreat,
+        }
+    }
+
+    #[test]
+    fn never_only_attacks() {
+        assert_eq!(
+            hero_options(&[Morale::Never, Morale::Tactical], true),
+            options(true, false, false)
+        );
+    }
+
+    #[test]
+    fn broken_courage_only_flees_even_without_retreat() {
+        assert_eq!(
+            hero_options(&[Morale::Courage(1.0)], false),
+            options(false, true, false)
+        );
+    }
+
+    #[test]
+    fn tactical_alone_cannot_order_a_retreat() {
+        assert_eq!(
+            hero_options(&[Morale::Tactical], true),
+            options(true, true, false)
+        );
+    }
+
+    #[test]
+    fn tactical_with_only_a_never_teammate_cannot_order_a_retreat() {
+        assert_eq!(
+            hero_options(&[Morale::Tactical, Morale::Never], true),
+            options(true, true, false)
+        );
+    }
+
+    #[test]
+    fn tactical_with_a_tactical_teammate_may_order_a_retreat() {
+        assert_eq!(
+            hero_options(&[Morale::Tactical, Morale::Tactical], true),
+            options(true, true, true)
+        );
+    }
+
+    #[test]
+    fn tactical_without_retreat_only_attacks() {
+        assert_eq!(
+            hero_options(&[Morale::Tactical, Morale::Tactical], false),
+            options(true, false, false)
+        );
+    }
+
+    #[test]
+    fn parting_turn_only_attacks_the_fleeing() {
+        // Both villains are Tactical and may retreat, but a parting turn
+        // offers neither way out: only blows at the fighter who fled.
+        let mut conflict = complex_flees_conflict();
+        let order = conflict.initiative_order();
+        let fled = Turn {
+            round: 1,
+            slot: 1,
+            actor: order[1].clone(),
+        };
+        assert_eq!(
+            fled.actor,
+            Participant {
+                party_id: 1,
+                member_id: 1
+            }
+        );
+        conflict.opponent.members[1].fled = true;
+        conflict.start_parting(&fled, 1, vec![1]);
+
+        let turn = conflict.next_turn().expect("a parting blow");
+        assert_eq!(
+            turn.actor,
+            Participant {
+                party_id: 0,
+                member_id: 0
+            }
+        );
+        let options = Solver::turn_options(&conflict, &turn);
+        assert_eq!(
+            options,
+            TurnOptions {
+                attacks: true,
+                targets: Some(vec![1]),
+                flee: false,
+                retreat: false,
+            }
+        );
+        assert!(!options.flee && !options.retreat);
+    }
+
+    #[test]
+    fn cowardly_villain_flees_on_first_turn() {
+        // The hero (speed 6) hits for 10: the villain is at 15. Its courage of
+        // 1.0 is broken from the start, so fleeing is its only option. The
+        // hero's parting blow brings it to 5, then the villains are gone and
+        // the hero remains with all 20 health: 20 * 0.1.
+        let heroes = build_default_hero_party(false, 20.0, 6);
+        let mut villains = build_simple_villain_party();
+        villains.members[0].morale = Morale::Courage(1.0);
+        let conflict = Conflict::new(heroes, villains);
+
+        let solution = Solver::engage(&conflict, SolverStrategy::DepthLimited(100));
+        assert_eq!(solution.outcome, OutcomeType::Remain(2.0));
+        let actions: Vec<_> = solution.timeline.iter().map(|e| &e.action).collect();
+        assert!(matches!(
+            actions[..],
+            [
+                AppliedAction::Targeted(_),
+                AppliedAction::Flee,
+                AppliedAction::Targeted(_)
+            ]
+        ));
+        assert_eq!(solution.timeline[2].state.opponent.members[0].health, 5.0);
     }
 
     fn complex_works_conflict() -> Conflict {

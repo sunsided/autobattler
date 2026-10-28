@@ -96,13 +96,11 @@ impl PartyMember {
         !self.is_dead() && !self.fled
     }
 
-    #[allow(dead_code)] // Used by the flight logic in later steps.
     /// The health the member started with.
     pub fn max_health(&self) -> f32 {
         self.health + self.damage_taken
     }
 
-    #[allow(dead_code)] // Used by the flight logic in later steps.
     /// Returns `true` if the member's morale breaks in the given round.
     pub fn must_flee(&self, round: usize) -> bool {
         match self.morale {

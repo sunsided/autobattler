@@ -62,11 +62,6 @@ impl Party {
         self.is_gone() && self.members.iter().any(|m| m.fled)
     }
 
-    /// Returns `true` if at least one party can still act.
-    pub fn can_act(&self) -> bool {
-        self.members.iter().any(PartyMember::can_act)
-    }
-
     /// Replaces the member identified by the party member's ID with the
     /// new value provided here.
     pub fn replace_member(&mut self, member: PartyMember) {

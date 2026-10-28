@@ -4,8 +4,10 @@ use std::fmt::{Debug, Display, Formatter};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AppliedAction {
-    /// The party retreats from the conflict.
+    /// The actor alone leaves the conflict.
     Flee,
+    /// The actor orders the party out of the conflict.
+    Retreat,
     /// A party member targets another party member.
     Targeted(TargetedAction),
 }
@@ -57,7 +59,8 @@ impl Debug for SimpleAttackAction {
 impl Display for AppliedAction {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            AppliedAction::Flee => write!(f, "the party retreats"),
+            AppliedAction::Flee => write!(f, "flees"),
+            AppliedAction::Retreat => write!(f, "the party retreats"),
             AppliedAction::Targeted(action) => match action.action {
                 Action::SimpleAttack(_) => {
                     write!(f, "{} attacks {}", action.source, action.target)

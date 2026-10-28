@@ -36,10 +36,11 @@ pub(crate) fn score_text(score: &TerminalState, bound: Bound) -> String {
     }
 }
 
-/// Names an action briefly, e.g. "punch Ziuon" or "order retreat".
+/// Names an action briefly, e.g. "punch Ziuon", "flee" or "order retreat".
 pub(crate) fn action_label(action: &AppliedAction, names: &[Vec<String>]) -> String {
     match action {
-        AppliedAction::Flee => "order retreat".to_string(),
+        AppliedAction::Flee => "flee".to_string(),
+        AppliedAction::Retreat => "order retreat".to_string(),
         AppliedAction::Targeted(targeted) => {
             let Action::SimpleAttack(attack) = &targeted.action;
             let target = &names[targeted.target.party_id][targeted.target.member_id];
@@ -221,7 +222,11 @@ mod tests {
         let names = names();
         assert_eq!(action_label(&attack(fists(), 0), &names), "punch Ziuon");
         assert_eq!(action_label(&attack(None, 1), &names), "glare at Molphige");
-        assert_eq!(action_label(&AppliedAction::Flee, &names), "order retreat");
+        assert_eq!(action_label(&AppliedAction::Flee, &names), "flee");
+        assert_eq!(
+            action_label(&AppliedAction::Retreat, &names),
+            "order retreat"
+        );
     }
 
     #[test]
@@ -230,7 +235,7 @@ mod tests {
             alt(attack(fists(), 0), TerminalState::Win(8.0), Bound::Exact),
             alt(attack(None, 1), TerminalState::Defeat(-20.0), Bound::AtMost),
             alt(
-                AppliedAction::Flee,
+                AppliedAction::Retreat,
                 TerminalState::Retreat(-5.0),
                 Bound::Exact,
             ),
@@ -252,7 +257,7 @@ mod tests {
         let alts = vec![
             alt(attack(None, 0), TerminalState::Remain(1.0), Bound::AtMost),
             alt(
-                AppliedAction::Flee,
+                AppliedAction::Retreat,
                 TerminalState::Retreat(-1.0),
                 Bound::AtMost,
             ),

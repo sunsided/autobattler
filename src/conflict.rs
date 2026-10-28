@@ -125,6 +125,10 @@ impl Conflict {
     /// Interrupts the round after `fleeing` fighters of `fleeing_party` fled
     /// in `turn`: every enemy who can act strikes once, then the round resumes.
     pub fn start_parting(&mut self, turn: &Turn, fleeing_party: usize, fleeing: Vec<usize>) {
+        debug_assert!(
+            self.parting.is_none(),
+            "Parting blows cannot be interrupted by another flight"
+        );
         self.round = turn.round;
         self.parting = Some(Parting {
             fleeing_party,

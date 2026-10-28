@@ -35,7 +35,7 @@ Brull jabs Molphige — 10 damage. Molphige is down!
        alt: punch Ziuon    → defeat  (≤ -20)
        alt: glare at Ziuon → defeat  (≤ -20)
        +2 more
-Ziuon sounds the retreat and flees!
+Ziuon flees!
    ↳ tactician: expects escape (2)
        alt: whack Brull    → defeat  (10)
        alt: glare at Brull → defeat  (≥ 14)

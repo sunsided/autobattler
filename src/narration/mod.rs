@@ -83,11 +83,12 @@ impl<'a> Narrator<'a> {
                 });
             }
 
-            // A retreat starts the parting blows; every action after it is one.
+            // A flight starts the parting blows; every action after it is one.
             let parting = previous.is_some_and(|p| p.state.parting.is_some());
+            let before = previous.map_or(start, |p| &p.state);
             beats.push(Beat {
                 kind: BeatKind::Action,
-                lines: self.action_lines(start, event, parting),
+                lines: self.action_lines(start, before, event, parting),
             });
 
             if timeline.get(i + 1).is_none_or(|n| n.round != event.round) {
@@ -143,7 +144,15 @@ impl<'a> Narrator<'a> {
     }
 
     /// Describes what happened in an event, plus the tactician note if enabled.
-    fn action_lines(&self, start: &Conflict, event: &Event, parting: bool) -> Vec<String> {
+    ///
+    /// `before` is the state the event's action was applied to.
+    fn action_lines(
+        &self,
+        start: &Conflict,
+        before: &Conflict,
+        event: &Event,
+        parting: bool,
+    ) -> Vec<String> {
         let initiator = start.initiator.id;
         let actor = self.colored_name(initiator, &event.actor);
         let line = match &event.action {
@@ -165,12 +174,15 @@ impl<'a> Narrator<'a> {
                 }
                 line
             }
-            AppliedAction::Flee => {
+            AppliedAction::Flee => format!("{actor} flees!"),
+            AppliedAction::Retreat => {
+                // Only those who were still on the field leave with the retreat.
+                let was_on_field = before.action_target(event.actor.party_id);
                 let party = event.state.action_target(event.actor.party_id);
                 let fleeing: Vec<Participant> = party
                     .members
                     .iter()
-                    .filter(|m| !m.is_dead())
+                    .filter(|m| m.fled && was_on_field.members[m.id].on_field())
                     .map(|m| Participant {
                         party_id: party.id,
                         member_id: m.id,
@@ -325,9 +337,9 @@ mod tests {
     #[test]
     fn parting_blows_are_marked() {
         let text = render(false);
-        let retreat = text.find("sounds the retreat").expect("a retreat");
+        let flight = text.find("Ziuon flees!").expect("a flight");
         let parting = text.find("Parting blow: ").expect("a parting blow");
-        assert!(parting > retreat);
+        assert!(parting > flight);
         assert_eq!(text.matches("Parting blow: ").count(), 1);
     }
 

@@ -3,13 +3,29 @@ use crate::party::{Participant, Party};
 use crate::party_member::{AttackIterator, PartyMember};
 use std::ops::Range;
 
+/// The actions offered in a turn.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TurnOptions {
+    /// Whether attacks are offered.
+    pub attacks: bool,
+    /// The IDs of the enemies that may be attacked, while alive.
+    /// [`None`] means every enemy on the field.
+    pub targets: Option<Vec<usize>>,
+    /// Whether the actor may flee alone.
+    pub flee: bool,
+    /// Whether the actor may order the party to retreat.
+    pub retreat: bool,
+}
+
 /// An action iterator.
 ///
 /// The iterator produces all permutations of party member attack actions
 /// targeting each opponent. Actions are generated for the first party member,
 /// with the first action applied to each individual opponent, then the second
 /// action applied to each opponent, etc. If all actions are exhausted for all opponents,
-/// the next party member is selected and the process repeats.
+/// the next party member is selected and the process repeats. After the attacks,
+/// [`Flee`](AppliedAction::Flee) and then [`Retreat`](AppliedAction::Retreat) follow,
+/// each only if the [`TurnOptions`] offer it.
 #[derive(Debug, Clone)]
 pub struct ActionIterator {
     /// The party whose turn it is.
@@ -20,7 +36,11 @@ pub struct ActionIterator {
     current_index: usize,
     /// The index range to address in the current party.
     current_range: Range<usize>,
-    /// Determines whether the retreat action was already emitted.
+    /// The actions on offer.
+    options: TurnOptions,
+    /// Determines whether the flee action was already considered.
+    tried_flee: bool,
+    /// Determines whether the retreat action was already considered.
     tried_retreat: bool,
     /// The iterator used to generated actions targeting an enemy party member..
     iter: Option<ActionTargetIterator>,
@@ -45,23 +65,50 @@ struct ActionTargetIterator {
 
 impl ActionIterator {
     /// Creates a new iterator selecting all current party members,
-    /// targeting all enemy party members.
+    /// targeting all enemy party members, with every option on.
     #[cfg(test)]
     pub fn new(current: Party, opponent: Party) -> Self {
         let range = 0..current.len();
-        Self::new_in(current, opponent, range)
+        let options = TurnOptions {
+            attacks: true,
+            targets: None,
+            flee: true,
+            retreat: true,
+        };
+        Self::new_in(current, opponent, range, options)
     }
 
     /// Creates a new iterator selecting only a range of current party members,
-    /// targeting all enemy party members.
-    pub const fn new_in(current: Party, opponent: Party, current_range: Range<usize>) -> Self {
+    /// offering the actions allowed by `options`.
+    pub fn new_in(
+        current: Party,
+        opponent: Party,
+        current_range: Range<usize>,
+        options: TurnOptions,
+    ) -> Self {
+        // Without attacks, the member enumeration is skipped entirely.
+        let current_index = if options.attacks {
+            current_range.start
+        } else {
+            current_range.end
+        };
         Self {
             current,
             opponent,
-            current_index: current_range.start,
+            current_index,
             current_range,
+            options,
             iter: None,
+            tried_flee: false,
             tried_retreat: false,
+        }
+    }
+
+    /// Determines whether `member` of the opponent may be attacked.
+    fn is_target(&self, member: &PartyMember) -> bool {
+        match &self.options.targets {
+            None => member.on_field(),
+            Some(ids) => ids.contains(&member.id) && !member.is_dead(),
         }
     }
 }
@@ -71,20 +118,19 @@ impl Iterator for ActionIterator {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            // If the end of the enumeration was reached, we can exit.
+            // If the end of the enumeration was reached, the ways out follow.
             if self.current_index >= self.current_range.end {
+                if !self.tried_flee {
+                    self.tried_flee = true;
+                    if self.options.flee {
+                        return Some(AppliedAction::Flee);
+                    }
+                }
+
                 if !self.tried_retreat {
                     self.tried_retreat = true;
-                    // TODO: Ensure that not every party can retreat.
-
-                    // No point in running away if the opponent is already running
-                    // or defeated. Likewise, ensure we can perform an action at all.
-                    if self.current.can_act()
-                        && self.current.can_retreat()
-                        && !self.opponent.has_retreated()
-                        && !self.opponent.is_defeated()
-                    {
-                        return Some(AppliedAction::Flee);
+                    if self.options.retreat {
+                        return Some(AppliedAction::Retreat);
                     }
                 }
 
@@ -113,7 +159,7 @@ impl Iterator for ActionIterator {
                     let opponent = &self.opponent.members[target_index];
 
                     // TODO: Rework action generation - should only generate applicable actions to begin with.
-                    if !opponent.is_applicable(&action) {
+                    if !self.is_target(opponent) || !opponent.is_applicable(&action) {
                         continue;
                     }
 
@@ -280,6 +326,100 @@ mod tests {
         }
 
         assert_eq!(iter.next(), None);
+    }
+
+    fn fighter(id: usize, fled: bool) -> PartyMember {
+        PartyMember {
+            id,
+            health: 25.0,
+            damage_taken: 0.0,
+            weapon: Weapon::Stick(Stick { damage: 10.0 }),
+            can_act: true,
+            speed: 1,
+            morale: Morale::Tactical,
+            fled,
+        }
+    }
+
+    fn party(id: usize, members: Vec<PartyMember>) -> Party {
+        Party {
+            id,
+            members,
+            can_retreat: true,
+        }
+    }
+
+    fn targets(actions: &[AppliedAction]) -> Vec<usize> {
+        actions
+            .iter()
+            .filter_map(|a| match a {
+                AppliedAction::Targeted(t) => Some(t.target.member_id),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn options_order_attacks_then_flee_then_retreat() {
+        let actions: Vec<_> = ActionIterator::new(
+            party(0, vec![fighter(0, false)]),
+            party(1, vec![fighter(0, false)]),
+        )
+        .collect();
+        // Stick and stare against the one villain, then both ways out.
+        assert_eq!(actions.len(), 4);
+        assert!(matches!(actions[0], AppliedAction::Targeted(_)));
+        assert!(matches!(actions[1], AppliedAction::Targeted(_)));
+        assert_eq!(actions[2], AppliedAction::Flee);
+        assert_eq!(actions[3], AppliedAction::Retreat);
+    }
+
+    #[test]
+    fn options_can_offer_flight_alone() {
+        let options = TurnOptions {
+            attacks: false,
+            targets: None,
+            flee: true,
+            retreat: false,
+        };
+        let actions: Vec<_> = ActionIterator::new_in(
+            party(0, vec![fighter(0, false)]),
+            party(1, vec![fighter(0, false)]),
+            0..1,
+            options,
+        )
+        .collect();
+        assert_eq!(actions, vec![AppliedAction::Flee]);
+    }
+
+    #[test]
+    fn parting_targets_only_fleeing_members() {
+        let options = TurnOptions {
+            attacks: true,
+            targets: Some(vec![1]),
+            flee: false,
+            retreat: false,
+        };
+        // Member 1 has fled; parting blows may still reach it.
+        let actions: Vec<_> = ActionIterator::new_in(
+            party(0, vec![fighter(0, false)]),
+            party(1, vec![fighter(0, false), fighter(1, true)]),
+            0..1,
+            options,
+        )
+        .collect();
+        assert_eq!(targets(&actions), vec![1, 1]);
+        assert_eq!(actions.len(), 2);
+    }
+
+    #[test]
+    fn fled_members_are_not_targeted() {
+        let actions: Vec<_> = ActionIterator::new(
+            party(0, vec![fighter(0, false)]),
+            party(1, vec![fighter(0, true), fighter(1, false)]),
+        )
+        .collect();
+        assert_eq!(targets(&actions), vec![1, 1]);
     }
 
     #[test]
@@ -492,6 +632,9 @@ mod tests {
             }))
         );
 
+        // The all-on test options offer both ways out after the attacks.
+        assert_eq!(iter.next(), Some(AppliedAction::Flee));
+        assert_eq!(iter.next(), Some(AppliedAction::Retreat));
         assert_eq!(iter.next(), None);
     }
 }
