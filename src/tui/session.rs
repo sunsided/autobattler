@@ -30,6 +30,7 @@ pub enum Input {
 }
 
 /// Which screen is showing.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScreenKind {
     Menu,
@@ -121,6 +122,7 @@ impl Session {
         }
     }
 
+    #[cfg(test)]
     pub fn screen(&self) -> ScreenKind {
         match self.screen {
             Screen::Menu => ScreenKind::Menu,
@@ -442,11 +444,13 @@ mod tests {
     #[test]
     fn digits_edit_only_on_digit_chars() {
         let mut s = session();
-        for _ in 0..8 {
+        while s.menu.cursor() != crate::tui::menu::Row::Seed {
             s.handle(Input::Down);
         }
         s.handle(Input::Char('x'));
+        assert_eq!(s.menu.seed(), 7);
         s.handle(Input::Char('1'));
+        assert_eq!(s.menu.seed(), 71);
         assert_eq!(s.screen(), ScreenKind::Menu);
     }
 

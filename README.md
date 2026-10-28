@@ -58,8 +58,9 @@ back in the TUI (see below), `task run -- --plain` prints the text log instead, 
 
 ## Watching a fight
 
-On a terminal, `task run` opens the fight in a TUI: the standoff frame with both sides' health bars
-and the log below them. Pipe the output, or pass `--fast` or `--plain` (`task run:plain`), and the
+On a terminal, `task run` opens a TUI on a scenario menu. Pick a scenario, press `enter` to see the
+lineup while the fight is solved in the background, then `space` to watch it play: the standoff frame
+with both sides' health bars and the log below them. Pipe the output, or pass `--fast` or `--plain` (`task run:plain`), and the
 text log is printed instead. This is what the frame looks like at the first action:
 
 ```
@@ -86,16 +87,30 @@ Brull(6) ▸ Molphige(5) ▸ Ziuon(3)
 │                                                                              │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
-space pause · ← → step · +/- speed · t tactician · q quit
+space pause · ← → step · +/- speed · t tactician · b back · q quit
 ```
+
+Menu:
+
+- `↑` / `↓` (or `k` / `j`) move between the scenarios, the hero and villain counts, the roster and the seed.
+- `←` / `→` (or `h` / `l`) change the value on that row.
+- `0`-`9` and `Backspace` edit the seed on its row; `r` rolls a new one.
+- `enter` opens the lineup; `q`, `Esc` or `Ctrl-C` quit.
+
+Lineup:
+
+- `space` or `enter` begin the fight once it is solved (big parties can take a moment).
+- `b` or `Esc` go back to the menu; `q` or `Ctrl-C` quit.
+
+Fight:
 
 - `space` pauses and resumes the fight.
 - `←` / `→` (or `h` / `l`) step one action back or forward; stepping pauses the fight.
 - `+` / `-` change the speed between 0.25× and 4×.
 - `t` toggles the tactician notes.
-- `q`, `Esc` or `Ctrl-C` quit.
+- `b` or `Esc` go back to the menu; `q` or `Ctrl-C` quit.
 
-After the fight ends the screen stays until you quit, and `←` still steps back through it.
+After the fight ends the screen stays until you leave it, and `←` still steps back through it.
 Terminals smaller than 80×24 show "terminal too small (needs 80×24)".
 
 ## Choosing a fight

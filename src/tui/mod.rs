@@ -1,39 +1,40 @@
 //! Terminal UI for watching a fight play out.
 
 pub mod app;
-#[allow(dead_code)] // wired into the event loop in a later commit
 pub mod menu;
-#[allow(dead_code)] // wired into the event loop in a later commit
 pub mod session;
 pub mod view;
 
-use app::{App, Key};
+use menu::Menu;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use ratatui::crossterm::{cursor, execute};
 use ratatui::{backend::CrosstermBackend, Terminal};
+use session::{solve, Input, Session, Solution, Solved};
 use std::io::{self, stdout, Stdout};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
-use view::FightView;
 
 const POLL: Duration = Duration::from_millis(16);
 
 /// Decodes a key press; releases, repeats and unbound keys map to `None`.
-fn map_key(event: KeyEvent) -> Option<Key> {
+fn map_key(event: KeyEvent) -> Option<Input> {
     if event.kind != KeyEventKind::Press {
         return None;
     }
     match event.code {
-        KeyCode::Char('c') if event.modifiers.contains(KeyModifiers::CONTROL) => Some(Key::Quit),
-        KeyCode::Char(' ') => Some(Key::TogglePause),
-        KeyCode::Left | KeyCode::Char('h') => Some(Key::Back),
-        KeyCode::Right | KeyCode::Char('l') => Some(Key::Forward),
-        KeyCode::Char('+' | '=') => Some(Key::Faster),
-        KeyCode::Char('-') => Some(Key::Slower),
-        KeyCode::Char('t') => Some(Key::ToggleTactician),
-        KeyCode::Char('q') | KeyCode::Esc => Some(Key::Quit),
+        KeyCode::Char('c') if event.modifiers.contains(KeyModifiers::CONTROL) => Some(Input::Quit),
+        KeyCode::Char(' ') => Some(Input::Space),
+        KeyCode::Char('h') | KeyCode::Left => Some(Input::Left),
+        KeyCode::Char('l') | KeyCode::Right => Some(Input::Right),
+        KeyCode::Char('k') | KeyCode::Up => Some(Input::Up),
+        KeyCode::Char('j') | KeyCode::Down => Some(Input::Down),
+        KeyCode::Enter => Some(Input::Enter),
+        KeyCode::Esc => Some(Input::Esc),
+        KeyCode::Backspace => Some(Input::Backspace),
+        KeyCode::Char(c) => Some(Input::Char(c)),
         _ => None,
     }
 }
@@ -64,16 +65,23 @@ pub enum TuiError {
     Terminal(io::Error),
 }
 
-/// Plays the fight in the terminal until the user quits.
-pub fn run(fight: FightView, explain: bool) -> Result<(), TuiError> {
+/// Runs the menu, lineup and fight screens until the user quits.
+///
+/// Returns the last fight seen, if any, even when the terminal failed later.
+pub fn run(menu: Menu, depth: usize, explain: bool) -> (Option<Solved>, Result<(), TuiError>) {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         restore();
         previous(info);
     }));
 
-    let (_guard, mut terminal) = setup().map_err(TuiError::Setup)?;
-    play(&mut terminal, &fight, explain).map_err(TuiError::Terminal)
+    let (_guard, mut terminal) = match setup() {
+        Ok(parts) => parts,
+        Err(error) => return (None, Err(TuiError::Setup(error))),
+    };
+    let mut session = Session::new(menu, depth, explain);
+    let result = play(&mut terminal, &mut session).map_err(TuiError::Terminal);
+    (session.into_last(), result)
 }
 
 /// Enters raw mode and the alternate screen; the guard leaves them again.
@@ -85,22 +93,30 @@ fn setup() -> io::Result<(TerminalGuard, Terminal<CrosstermBackend<Stdout>>)> {
     Ok((guard, terminal))
 }
 
-/// Runs the event loop until the user quits.
+/// Runs the event loop until the session wants to quit.
+///
+/// Solving happens on detached threads; a result that arrives after the user
+/// left its lineup is dropped by the session.
 fn play(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
-    fight: &FightView,
-    explain: bool,
+    session: &mut Session,
 ) -> io::Result<()> {
-    let rounds = fight.outcome.timeline.iter().map(|e| e.round).collect();
-    let mut app = App::new(rounds, explain);
+    let (tx, rx) = mpsc::channel::<(u64, Solution)>();
     let mut dirty = true;
     let mut last = Instant::now();
-    while !app.should_quit() {
+    while !session.should_quit() {
         if event::poll(POLL)? {
             match event::read()? {
                 Event::Key(key) => {
-                    if let Some(key) = map_key(key) {
-                        app.handle(key);
+                    if let Some(input) = map_key(key) {
+                        if let Some(job) = session.handle(input) {
+                            let tx = tx.clone();
+                            std::thread::spawn(move || {
+                                let solution =
+                                    solve(&job.conflict, &job.names, job.seed, job.depth);
+                                let _ = tx.send((job.generation, solution));
+                            });
+                        }
                         dirty = true;
                     }
                 }
@@ -108,13 +124,14 @@ fn play(
                 _ => {}
             }
         }
+        while let Ok((generation, solution)) = rx.try_recv() {
+            dirty |= session.solved(generation, solution);
+        }
         let now = Instant::now();
-        let (shown, flashing) = (app.shown(), app.flashing());
-        app.tick(now - last);
+        dirty |= session.tick(now - last);
         last = now;
-        dirty |= app.shown() != shown || app.flashing() != flashing;
         if dirty {
-            terminal.draw(|frame| view::draw(frame, &app, fight))?;
+            terminal.draw(|frame| session.draw(frame))?;
             dirty = false;
         }
     }
@@ -132,23 +149,29 @@ mod tests {
     #[test]
     fn map_key_table() {
         let table = [
-            (press(KeyCode::Char(' ')), Some(Key::TogglePause)),
-            (press(KeyCode::Left), Some(Key::Back)),
-            (press(KeyCode::Char('h')), Some(Key::Back)),
-            (press(KeyCode::Right), Some(Key::Forward)),
-            (press(KeyCode::Char('l')), Some(Key::Forward)),
-            (press(KeyCode::Char('+')), Some(Key::Faster)),
-            (press(KeyCode::Char('=')), Some(Key::Faster)),
-            (press(KeyCode::Char('-')), Some(Key::Slower)),
-            (press(KeyCode::Char('t')), Some(Key::ToggleTactician)),
-            (press(KeyCode::Char('q')), Some(Key::Quit)),
-            (press(KeyCode::Esc), Some(Key::Quit)),
+            (press(KeyCode::Char(' ')), Some(Input::Space)),
+            (press(KeyCode::Left), Some(Input::Left)),
+            (press(KeyCode::Char('h')), Some(Input::Left)),
+            (press(KeyCode::Right), Some(Input::Right)),
+            (press(KeyCode::Char('l')), Some(Input::Right)),
+            (press(KeyCode::Up), Some(Input::Up)),
+            (press(KeyCode::Char('k')), Some(Input::Up)),
+            (press(KeyCode::Down), Some(Input::Down)),
+            (press(KeyCode::Char('j')), Some(Input::Down)),
+            (press(KeyCode::Enter), Some(Input::Enter)),
+            (press(KeyCode::Esc), Some(Input::Esc)),
+            (press(KeyCode::Backspace), Some(Input::Backspace)),
+            (press(KeyCode::Char('b')), Some(Input::Char('b'))),
+            (press(KeyCode::Char('q')), Some(Input::Char('q'))),
+            (press(KeyCode::Char('7')), Some(Input::Char('7'))),
+            (press(KeyCode::Char('+')), Some(Input::Char('+'))),
             (
                 KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
-                Some(Key::Quit),
+                Some(Input::Quit),
             ),
-            (press(KeyCode::Char('c')), None),
-            (press(KeyCode::Char('x')), None),
+            (press(KeyCode::Char('c')), Some(Input::Char('c'))),
+            (press(KeyCode::Tab), None),
+            (press(KeyCode::F(1)), None),
         ];
         for (event, expected) in table {
             assert_eq!(map_key(event), expected, "{event:?}");

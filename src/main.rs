@@ -4,7 +4,7 @@ use crate::narration::{BeatKind, NarrationOptions, Narrator};
 use crate::roster::Roster;
 use crate::scenario::{Fight, Preset};
 use crate::solver::{Solver, SolverStrategy, MAX_ROUNDS};
-use crate::tui::view::FightView;
+use crate::tui::menu::Menu;
 use crate::tui::TuiError;
 use std::io::{stdout, IsTerminal};
 use std::process::ExitCode;
@@ -49,48 +49,23 @@ fn main() -> ExitCode {
 
     let seed = options.seed.unwrap_or_else(clock_seed);
     let roster = options.roster.unwrap_or(Roster::Random);
-    let Fight { conflict, names } = scenario::build(options.setup, roster, seed);
-
     let mode = cli::ui_mode(options.plain, options.fast, stdout().is_terminal());
-    let tui = mode == UiMode::Tui;
-    if tui {
+    if mode == UiMode::Tui {
         // The TUI draws its own colors; keep escape codes out of the beats.
         colored::control::set_override(false);
-        if conflict.initiator.len() + conflict.opponent.len() > 4 {
-            eprintln!("thinking…");
-        }
-    }
-
-    let strategy = SolverStrategy::IterativeDeepening(options.depth);
-    let outcome = Solver::play(&conflict, strategy, MAX_ROUNDS);
-
-    let narrate = |explain: bool| {
-        Narrator::new(
-            &names,
-            NarrationOptions {
-                explain,
-                seed: Some(seed),
-            },
-        )
-        .narrate(&conflict, &outcome)
-    };
-
-    if tui {
-        let beats = narrate(true);
-        let scenario = options.setup.label();
-        let fight = FightView {
-            start: &conflict,
-            outcome: &outcome,
-            names: &names,
-            beats: &beats,
-            scenario,
-            seed,
-        };
+        let menu = Menu::new(options.setup, roster, seed);
+        let (last, result) = tui::run(menu, options.depth, options.explain);
         // Leaving the alternate screen clears the fight; print the result,
         // seed included, so it stays in the scrollback.
         let print_result = || {
             colored::control::unset_override();
-            let closing = narrate(options.explain);
+            let Some(fight) = last else { return };
+            let options = NarrationOptions {
+                explain: options.explain,
+                seed: Some(fight.seed),
+            };
+            let closing =
+                Narrator::new(&fight.names, options).narrate(&fight.conflict, &fight.outcome);
             for beat in closing
                 .iter()
                 .filter(|b| matches!(b.kind, BeatKind::Outro | BeatKind::Stats))
@@ -100,7 +75,7 @@ fn main() -> ExitCode {
                 }
             }
         };
-        match tui::run(fight, options.explain) {
+        match result {
             Ok(()) => {
                 print_result();
                 return ExitCode::SUCCESS;
@@ -117,7 +92,14 @@ fn main() -> ExitCode {
         }
     }
 
-    let beats = narrate(options.explain);
+    let Fight { conflict, names } = scenario::build(options.setup, roster, seed);
+    let strategy = SolverStrategy::IterativeDeepening(options.depth);
+    let outcome = Solver::play(&conflict, strategy, MAX_ROUNDS);
+    let narration = NarrationOptions {
+        explain: options.explain,
+        seed: Some(seed),
+    };
+    let beats = Narrator::new(&names, narration).narrate(&conflict, &outcome);
     let delays = cli::delays_enabled(options.fast, stdout().is_terminal());
     let pause = |duration: Duration| {
         if delays {

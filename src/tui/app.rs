@@ -23,7 +23,6 @@ pub enum Key {
     Faster,
     Slower,
     ToggleTactician,
-    Quit,
 }
 
 /// Playback position and settings over a timeline of events.
@@ -38,7 +37,6 @@ pub struct App {
     /// Real time left on the flash of the latest event.
     flash: Duration,
     explain: bool,
-    quit: bool,
 }
 
 impl App {
@@ -53,7 +51,6 @@ impl App {
             accumulator: Duration::ZERO,
             flash: Duration::ZERO,
             explain,
-            quit: false,
         }
     }
 
@@ -85,10 +82,6 @@ impl App {
         self.shown == self.len()
     }
 
-    pub fn should_quit(&self) -> bool {
-        self.quit
-    }
-
     pub fn handle(&mut self, key: Key) {
         match key {
             Key::TogglePause => {
@@ -101,7 +94,6 @@ impl App {
             Key::Faster => self.speed = (self.speed + 1).min(SPEED_QUARTERS.len() - 1),
             Key::Slower => self.speed = self.speed.saturating_sub(1),
             Key::ToggleTactician => self.explain = !self.explain,
-            Key::Quit => self.quit = true,
         }
     }
 
@@ -272,16 +264,13 @@ mod tests {
     }
 
     #[test]
-    fn tactician_toggle_and_quit() {
+    fn tactician_toggle() {
         let mut a = app();
         assert!(!a.explain());
         a.handle(Key::ToggleTactician);
         assert!(a.explain());
         a.handle(Key::ToggleTactician);
         assert!(!a.explain());
-        assert!(!a.should_quit());
-        a.handle(Key::Quit);
-        assert!(a.should_quit());
     }
 
     #[test]
