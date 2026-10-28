@@ -94,20 +94,10 @@ impl FightView<'_> {
 
 /// Draws one frame for the playback position of `app`.
 pub fn draw(frame: &mut Frame, app: &App, fight: &FightView) {
-    let area = frame.area();
-    if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
-        let [_, middle, _] = Layout::vertical([
-            Constraint::Fill(1),
-            Constraint::Length(1),
-            Constraint::Fill(1),
-        ])
-        .areas(area);
-        frame.render_widget(
-            Paragraph::new(TOO_SMALL).alignment(Alignment::Center),
-            middle,
-        );
+    if too_small(frame) {
         return;
     }
+    let area = frame.area();
 
     let fighters = fight
         .start
@@ -138,6 +128,26 @@ pub fn draw(frame: &mut Frame, app: &App, fight: &FightView) {
         Paragraph::new(KEY_BAR).style(Style::new().add_modifier(Modifier::DIM)),
         keys,
     );
+}
+
+/// Draws the too-small message and returns true when the terminal is below
+/// 80×24.
+pub(crate) fn too_small(frame: &mut Frame) -> bool {
+    let area = frame.area();
+    if area.width >= MIN_WIDTH && area.height >= MIN_HEIGHT {
+        return false;
+    }
+    let [_, middle, _] = Layout::vertical([
+        Constraint::Fill(1),
+        Constraint::Length(1),
+        Constraint::Fill(1),
+    ])
+    .areas(area);
+    frame.render_widget(
+        Paragraph::new(TOO_SMALL).alignment(Alignment::Center),
+        middle,
+    );
+    true
 }
 
 /// Rows between the tops of two cards: a blank line between cards if they fit.
@@ -521,18 +531,16 @@ fn wrap(line: &str, width: usize) -> Vec<String> {
     }
 }
 
-/// Renders one frame and returns its cell symbols row by row, with trailing
-/// spaces trimmed.
+/// Renders one frame drawn by `draw` and returns its cell symbols row by row,
+/// with trailing spaces trimmed.
 #[cfg(test)]
-fn render_to_text(app: &App, fight: &FightView, width: u16, height: u16) -> String {
+pub(crate) fn render_with(width: u16, height: u16, draw: impl FnOnce(&mut Frame)) -> String {
     use ratatui::backend::TestBackend;
     use ratatui::buffer::CellWidth;
     use ratatui::Terminal;
 
     let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("test terminal");
-    terminal
-        .draw(|frame| draw(frame, app, fight))
-        .expect("draw a frame");
+    terminal.draw(draw).expect("draw a frame");
     let buffer = terminal.backend().buffer();
     let mut text = String::new();
     for row in buffer.content.chunks(width as usize) {
@@ -549,6 +557,21 @@ fn render_to_text(app: &App, fight: &FightView, width: u16, height: u16) -> Stri
         text.push('\n');
     }
     text
+}
+
+/// Fails with both frames shown when `actual` differs from the golden file.
+#[cfg(test)]
+#[track_caller]
+pub(crate) fn assert_golden(actual: &str, expected: &str) {
+    assert!(
+        actual == expected,
+        "frame differs from golden\n--- actual ---\n{actual}--- expected ---\n{expected}"
+    );
+}
+
+#[cfg(test)]
+fn render_to_text(app: &App, fight: &FightView, width: u16, height: u16) -> String {
+    render_with(width, height, |frame| draw(frame, app, fight))
 }
 
 #[cfg(test)]
@@ -655,14 +678,6 @@ mod tests {
             7,
         );
         Fixture::new(fight.conflict, fight.names, 4, "custom 4v4")
-    }
-
-    #[track_caller]
-    fn assert_golden(actual: &str, expected: &str) {
-        assert!(
-            actual == expected,
-            "frame differs from golden\n--- actual ---\n{actual}--- expected ---\n{expected}"
-        );
     }
 
     #[test]

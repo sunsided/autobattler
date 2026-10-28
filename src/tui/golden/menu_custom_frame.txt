@@ -1,0 +1,24 @@
+autobattler · choose a fight
+┌ scenario ────────────────────────────────────────────────────────────────────┐
+│    ambush     1 hero vs 2 villains with fixed stats (default)                │
+│    duel       1 hero vs 1 villain                                            │
+│    skirmish   2 heroes vs 3 villains                                         │
+│    brawl      3 heroes vs 4 villains                                         │
+│  ▸ custom     2 vs 3 generated                                               │
+└──────────────────────────────────────────────────────────────────────────────┘
+┌ settings ────────────────────────────────────────────────────────────────────┐
+│    heroes     ◂ 2 ▸                                                          │
+│    villains   ◂ 3 ▸                                                          │
+│    roster     ◂ archetypes ▸                                                 │
+│    seed       7                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+
+
+
+
+
+
+
+
+↑↓ choose · ←→ change · r reroll · 0-9 seed · enter fight · q quit

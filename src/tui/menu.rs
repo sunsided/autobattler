@@ -4,6 +4,15 @@ use crate::cli::MAX_PARTY;
 use crate::rng::XorShift64;
 use crate::roster::Roster;
 use crate::scenario::{Preset, Setup};
+use crate::tui::view::too_small;
+use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Paragraph};
+use ratatui::Frame;
+
+const TITLE: &str = "autobattler · choose a fight";
+const KEY_BAR: &str = "↑↓ choose · ←→ change · r reroll · 0-9 seed · enter fight · q quit";
 
 /// A line of the menu.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -183,9 +192,85 @@ impl Menu {
     }
 }
 
+/// Draws the menu.
+pub fn draw_menu(frame: &mut Frame, menu: &Menu) {
+    if too_small(frame) {
+        return;
+    }
+    let [title, scenario, settings, _, keys] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(7),
+        Constraint::Length(6),
+        Constraint::Fill(1),
+        Constraint::Length(1),
+    ])
+    .areas(frame.area());
+
+    let bold = Style::new().add_modifier(Modifier::BOLD);
+    frame.render_widget(Paragraph::new(TITLE).style(bold), title);
+    draw_block(frame, scenario, " scenario ", &ROWS[..5], menu);
+    draw_block(frame, settings, " settings ", &ROWS[5..], menu);
+    frame.render_widget(
+        Paragraph::new(KEY_BAR).style(Style::new().add_modifier(Modifier::DIM)),
+        keys,
+    );
+}
+
+fn draw_block(frame: &mut Frame, area: Rect, title: &str, rows: &[Row], menu: &Menu) {
+    let block = Block::bordered().title(title);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let lines: Vec<Line> = rows.iter().map(|&row| row_line(menu, row)).collect();
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// One menu line: the chosen marker, the name and the value or description.
+fn row_line(menu: &Menu, row: Row) -> Line<'static> {
+    let (name, value) = match row {
+        Row::Preset(preset) => (preset.name(), preset.description().to_string()),
+        Row::Custom => (
+            "custom",
+            format!("{} vs {} generated", menu.heroes(), menu.villains()),
+        ),
+        Row::Heroes => ("heroes", stepper(menu.heroes())),
+        Row::Villains => ("villains", stepper(menu.villains())),
+        Row::Roster if !menu.enabled(row) => ("roster", "fixed".to_string()),
+        Row::Roster => (
+            "roster",
+            match menu.roster() {
+                Roster::Random => "◂ random ▸".to_string(),
+                Roster::Archetypes => "◂ archetypes ▸".to_string(),
+            },
+        ),
+        Row::Seed => ("seed", menu.seed().to_string()),
+    };
+    let marker = match row {
+        Row::Preset(_) | Row::Custom if menu.chosen() == row => "▸ ",
+        Row::Preset(_) | Row::Custom => "  ",
+        _ => "",
+    };
+    let indent = if marker.is_empty() { "    " } else { "  " };
+    let mut style = Style::new();
+    if menu.cursor() == row {
+        style = style.add_modifier(Modifier::BOLD | Modifier::REVERSED);
+    } else if !menu.enabled(row) {
+        style = style.add_modifier(Modifier::DIM);
+    }
+    Line::from(Span::styled(
+        format!("{indent}{marker}{name:<11}{value}"),
+        style,
+    ))
+}
+
+fn stepper(n: usize) -> String {
+    format!("◂ {n} ▸")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tui::view::{assert_golden, render_with};
+    use ratatui::style::Modifier;
 
     const AMBUSH: Row = Row::Preset(Preset::Ambush);
 
@@ -362,5 +447,53 @@ mod tests {
             ambush().selection(),
             (Setup::Preset(Preset::Ambush), Roster::Random, 1)
         );
+    }
+
+    fn render(menu: &Menu, width: u16, height: u16) -> String {
+        render_with(width, height, |frame| draw_menu(frame, menu))
+    }
+
+    #[test]
+    fn menu_frame() {
+        let menu = Menu::new(Setup::Preset(Preset::Ambush), Roster::Random, 4711);
+        let text = render(&menu, 80, 24);
+        assert_golden(&text, include_str!("golden/menu_frame.txt"));
+    }
+
+    #[test]
+    fn menu_custom_frame() {
+        let mut menu = Menu::new(
+            Setup::Custom {
+                heroes: 2,
+                villains: 3,
+            },
+            Roster::Archetypes,
+            7,
+        );
+        menu.handle(MenuKey::Down);
+        let text = render(&menu, 80, 24);
+        assert_golden(&text, include_str!("golden/menu_custom_frame.txt"));
+    }
+
+    #[test]
+    fn menu_too_small() {
+        let text = render(&ambush(), 79, 24);
+        assert!(text.contains("terminal too small (needs 80×24)"), "{text}");
+    }
+
+    #[test]
+    fn menu_cursor_row_is_reversed() {
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+        let menu = ambush();
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|frame| draw_menu(frame, &menu)).unwrap();
+        let buffer = terminal.backend().buffer();
+        // Row 2 is the first scenario row; column 5 is the first letter of its name.
+        let cell = &buffer[(5, 2)];
+        assert_eq!(cell.symbol(), "a");
+        assert!(cell.modifier.contains(Modifier::REVERSED));
+        assert!(cell.modifier.contains(Modifier::BOLD));
+        assert!(!buffer[(5, 3)].modifier.contains(Modifier::REVERSED));
     }
 }
