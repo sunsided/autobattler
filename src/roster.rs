@@ -1,7 +1,7 @@
 //! Builds parties and names from a seed.
 
 use crate::party::Party;
-use crate::party_member::PartyMember;
+use crate::party_member::{Morale, PartyMember};
 use crate::rng::XorShift64;
 use crate::weapon::{Fists, Stick, Weapon};
 
@@ -108,7 +108,6 @@ pub fn party(id: usize, side: Side, size: usize, roster: Roster, rng: &mut XorSh
         id,
         members,
         can_retreat: true,
-        retreated: false,
     }
 }
 
@@ -147,6 +146,8 @@ fn member(id: usize, stats: Archetype) -> PartyMember {
         weapon,
         can_act: true,
         speed: stats.speed,
+        morale: Morale::Tactical,
+        fled: false,
     }
 }
 
@@ -192,7 +193,6 @@ mod tests {
             let ids: Vec<usize> = party.members.iter().map(|m| m.id).collect();
             assert_eq!(ids, vec![0, 1, 2, 3]);
             assert!(party.can_retreat);
-            assert!(!party.retreated);
             assert!(party
                 .members
                 .iter()

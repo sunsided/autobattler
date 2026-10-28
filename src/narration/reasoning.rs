@@ -110,7 +110,7 @@ mod tests {
     use crate::action::{SimpleAttackAction, TargetedAction};
     use crate::conflict::Conflict;
     use crate::party::{Participant, Party};
-    use crate::party_member::PartyMember;
+    use crate::party_member::{Morale, PartyMember};
     use crate::solver::Alternative;
     use crate::weapon::{Fists, Weapon};
 
@@ -158,12 +158,13 @@ mod tests {
             weapon: Weapon::Fists(Fists { damage: 1.0 }),
             can_act: true,
             speed: 1,
+            morale: Morale::Tactical,
+            fled: false,
         };
         let party = |id, members| Party {
             id,
             members,
             can_retreat: true,
-            retreated: false,
         };
         Event {
             round: 1,

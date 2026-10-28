@@ -1,4 +1,4 @@
-use crate::party_member::PartyMember;
+use crate::party_member::{Morale, PartyMember};
 use std::fmt::{Display, Formatter};
 
 /// A party, or faction in a conflict.
@@ -10,8 +10,6 @@ pub struct Party {
     pub members: Vec<PartyMember>,
     /// Indicates whether the party is allowed to retreat.
     pub can_retreat: bool,
-    /// Indicates if the party has retreated from the encounter.
-    pub retreated: bool,
 }
 
 /// A participant.
@@ -24,13 +22,25 @@ pub struct Participant {
 }
 
 impl Party {
-    /// Makes every member unable to act in the encounter.
-    pub fn retreat(&mut self) {
+    /// Makes every living member without `Never` morale flee the encounter.
+    ///
+    /// ## Returns
+    /// The IDs of the members that fled, in member order.
+    pub fn retreat(&mut self) -> Vec<usize> {
         debug_assert!(self.can_retreat);
-        self.retreated = true;
+        let mut fled = Vec::new();
         for member in self.members.iter_mut() {
-            member.can_act = false;
+            if !member.is_dead() && !member.fled && member.morale != Morale::Never {
+                member.fled = true;
+                fled.push(member.id);
+            }
         }
+        fled
+    }
+
+    /// Returns `true` if no member is left on the field.
+    pub fn is_gone(&self) -> bool {
+        !self.members.iter().any(PartyMember::on_field)
     }
 
     /// Returns `true` if the party is defeated.
@@ -49,7 +59,7 @@ impl Party {
 
     /// Returns `true` if the party has retreated from the encounter.
     pub fn has_retreated(&self) -> bool {
-        self.retreated
+        self.is_gone() && self.members.iter().any(|m| m.fled)
     }
 
     /// Returns `true` if at least one party can still act.
@@ -77,5 +87,58 @@ impl Party {
 impl Display for Participant {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}:{}", self.party_id, self.member_id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::weapon::{Stick, Weapon};
+
+    fn member(id: usize, morale: Morale) -> PartyMember {
+        PartyMember {
+            id,
+            health: 10.0,
+            damage_taken: 0.0,
+            weapon: Weapon::Stick(Stick { damage: 1.0 }),
+            can_act: true,
+            speed: 1,
+            morale,
+            fled: false,
+        }
+    }
+
+    fn party(members: Vec<PartyMember>) -> Party {
+        Party {
+            id: 0,
+            members,
+            can_retreat: true,
+        }
+    }
+
+    #[test]
+    fn retreat_leaves_never_members_behind() {
+        let mut p = party(vec![
+            member(0, Morale::Tactical),
+            member(1, Morale::Never),
+            member(2, Morale::Courage(0.3)),
+        ]);
+        assert_eq!(p.retreat(), vec![0, 2]);
+        assert!(p.members[1].on_field());
+        assert!(!p.is_gone());
+        assert!(!p.has_retreated());
+    }
+
+    #[test]
+    fn party_gone_when_all_dead_or_fled() {
+        let mut p = party(vec![
+            member(0, Morale::Tactical),
+            member(1, Morale::Tactical),
+        ]);
+        p.members[0].health = 0.0;
+        p.members[1].fled = true;
+        assert!(p.is_gone());
+        assert!(p.has_retreated());
+        assert!(!p.is_defeated());
     }
 }

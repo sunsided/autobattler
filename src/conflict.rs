@@ -140,6 +140,7 @@ impl Conflict {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::party_member::Morale;
     use crate::weapon::{Fists, Stick, Weapon};
 
     fn p(party_id: usize, member_id: usize) -> Participant {
@@ -157,6 +158,8 @@ mod tests {
             weapon,
             can_act: true,
             speed,
+            morale: Morale::Tactical,
+            fled: false,
         }
     }
 
@@ -170,7 +173,6 @@ mod tests {
                 Weapon::Fists(Fists { damage: 10.0 }),
             )],
             can_retreat: true,
-            retreated: false,
         };
         let villains = Party {
             id: 1,
@@ -179,7 +181,6 @@ mod tests {
                 member(1, 5, 10.0, Weapon::Fists(Fists { damage: 20.0 })),
             ],
             can_retreat: true,
-            retreated: false,
         };
         Conflict::new(heroes, villains)
     }

@@ -187,6 +187,7 @@ impl Iterator for ActionTargetIterator {
 mod tests {
     use super::*;
     use crate::action::SimpleAttackAction;
+    use crate::party_member::Morale;
     use crate::weapon::{Fists, Stick, Weapon};
 
     #[test]
@@ -199,6 +200,8 @@ mod tests {
                 weapon: Weapon::Stick(Stick { damage: 10.0 }),
                 can_act: true,
                 speed: 1,
+                morale: Morale::Tactical,
+                fled: false,
             },
             0..10,
         );
@@ -244,6 +247,8 @@ mod tests {
                 weapon: Weapon::Stick(Stick { damage: 10.0 }),
                 can_act: true,
                 speed: 1,
+                morale: Morale::Tactical,
+                fled: false,
             },
             10..20,
         );
@@ -289,6 +294,8 @@ mod tests {
                     weapon: Weapon::Stick(Stick { damage: 10.0 }),
                     can_act: true,
                     speed: 1,
+                    morale: Morale::Tactical,
+                    fled: false,
                 },
                 PartyMember {
                     id: 1,
@@ -297,10 +304,11 @@ mod tests {
                     weapon: Weapon::Fists(Fists { damage: 5.0 }),
                     can_act: true,
                     speed: 1,
+                    morale: Morale::Tactical,
+                    fled: false,
                 },
             ],
             can_retreat: false,
-            retreated: false,
         };
 
         let villains = Party {
@@ -313,6 +321,8 @@ mod tests {
                     weapon: Weapon::Stick(Stick { damage: 10.0 }),
                     can_act: true,
                     speed: 1,
+                    morale: Morale::Tactical,
+                    fled: false,
                 },
                 PartyMember {
                     id: 1,
@@ -321,10 +331,11 @@ mod tests {
                     weapon: Weapon::Stick(Stick { damage: 10.0 }),
                     can_act: true,
                     speed: 1,
+                    morale: Morale::Tactical,
+                    fled: false,
                 },
             ],
             can_retreat: false,
-            retreated: false,
         };
 
         let mut iter = ActionIterator::new(heroes, villains);

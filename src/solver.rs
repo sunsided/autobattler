@@ -284,7 +284,7 @@ impl Solver {
             match action {
                 AppliedAction::Flee => {
                     let mut current = current.clone();
-                    current.retreat();
+                    let _ = current.retreat();
 
                     // Create a new branch on the board.
                     let mut state = Self::rebuild_state(
@@ -902,7 +902,7 @@ fn log_finish_iddfs(depth: usize) {
 mod tests {
     use super::*;
     use crate::action::Action;
-    use crate::party_member::PartyMember;
+    use crate::party_member::{Morale, PartyMember};
     use crate::weapon::{Fists, Stick, Weapon};
 
     #[test]
@@ -1201,9 +1201,10 @@ mod tests {
                 weapon: Weapon::Fists(Fists { damage: 10.0 }),
                 can_act: true,
                 speed,
+                morale: Morale::Tactical,
+                fled: false,
             }],
             can_retreat,
-            retreated: false,
         }
     }
 
@@ -1218,6 +1219,8 @@ mod tests {
                     weapon: Weapon::Stick(Stick { damage: 5.0 }),
                     can_act: true,
                     speed: 3,
+                    morale: Morale::Tactical,
+                    fled: false,
                 },
                 PartyMember {
                     id: 1,
@@ -1228,10 +1231,11 @@ mod tests {
                     }),
                     can_act: true,
                     speed: 5,
+                    morale: Morale::Tactical,
+                    fled: false,
                 },
             ],
             can_retreat,
-            retreated: false,
         }
     }
 
@@ -1245,9 +1249,10 @@ mod tests {
                 weapon: Weapon::Stick(Stick { damage: 10.0 }),
                 can_act: true,
                 speed: 3,
+                morale: Morale::Tactical,
+                fled: false,
             }],
             can_retreat: false,
-            retreated: false,
         }
     }
 

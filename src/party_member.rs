@@ -1,6 +1,20 @@
 use crate::action::{Action, SimpleAttackAction};
 use crate::weapon::Weapon;
 
+/// How readily a party member flees the conflict on their own.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[allow(dead_code)] // Courage and AfterRounds are only built from rosters in later steps.
+pub enum Morale {
+    /// Only flees when the party retreats as a whole.
+    Tactical,
+    /// Never flees, not even when the party retreats.
+    Never,
+    /// Flees once the remaining health fraction drops to or below the given value.
+    Courage(f32),
+    /// Flees after the given number of rounds.
+    AfterRounds(usize),
+}
+
 /// A party member.
 #[derive(Debug, Clone)]
 pub struct PartyMember {
@@ -18,6 +32,10 @@ pub struct PartyMember {
     pub can_act: bool,
     /// The speed of the member. Faster members act earlier in a round.
     pub speed: u32,
+    /// How readily the member flees on their own.
+    pub morale: Morale,
+    /// Whether the member has fled the conflict.
+    pub fled: bool,
 }
 
 impl PartyMember {
@@ -69,7 +87,29 @@ impl PartyMember {
 
     /// Determines whether the current member can act.
     pub fn can_act(&self) -> bool {
-        self.can_act && !self.is_dead()
+        self.can_act && !self.is_dead() && !self.fled
+    }
+
+    /// Returns `true` if the member is still present in the conflict,
+    /// i.e. neither dead nor fled.
+    pub fn on_field(&self) -> bool {
+        !self.is_dead() && !self.fled
+    }
+
+    #[allow(dead_code)] // Used by the flight logic in later steps.
+    /// The health the member started with.
+    pub fn max_health(&self) -> f32 {
+        self.health + self.damage_taken
+    }
+
+    #[allow(dead_code)] // Used by the flight logic in later steps.
+    /// Returns `true` if the member's morale breaks in the given round.
+    pub fn must_flee(&self, round: usize) -> bool {
+        match self.morale {
+            Morale::Tactical | Morale::Never => false,
+            Morale::Courage(threshold) => self.health / self.max_health() <= threshold,
+            Morale::AfterRounds(rounds) => round > rounds,
+        }
     }
 
     /// Determines whether the action is applicable to this member.
@@ -137,6 +177,8 @@ mod tests {
             weapon: Weapon::Stick(Stick { damage: 0.0 }),
             can_act: true,
             speed: 1,
+            morale: Morale::Tactical,
+            fled: false,
         };
 
         // Apply more damage than the subject has health.
@@ -163,6 +205,8 @@ mod tests {
             weapon: Weapon::Stick(Stick { damage: 0.0 }),
             can_act: true,
             speed: 1,
+            morale: Morale::Tactical,
+            fled: false,
         };
 
         let mut iter = member.clone().actions();
@@ -181,5 +225,66 @@ mod tests {
             }))
         );
         assert_eq!(iter.next(), None);
+    }
+
+    fn member_with(health: f32, morale: Morale) -> PartyMember {
+        PartyMember {
+            id: 0,
+            health,
+            damage_taken: 0.0,
+            weapon: Weapon::Stick(Stick { damage: 0.0 }),
+            can_act: true,
+            speed: 1,
+            morale,
+            fled: false,
+        }
+    }
+
+    #[test]
+    fn must_flee_by_morale() {
+        for round in [1, 5, 100] {
+            assert!(!member_with(20.0, Morale::Tactical).must_flee(round));
+            assert!(!member_with(20.0, Morale::Never).must_flee(round));
+        }
+
+        let mut m = member_with(1.0, Morale::Courage(0.0));
+        m.damage_taken = 19.0;
+        assert!(!m.must_flee(1));
+        assert!(member_with(20.0, Morale::Courage(1.0)).must_flee(1));
+
+        let mut m = member_with(20.0, Morale::Courage(0.4));
+        assert!(!m.must_flee(1));
+        m.handle_action(&Action::SimpleAttack(SimpleAttackAction {
+            weapon: None,
+            damage: 12.0,
+        }));
+        assert_eq!(m.health, 8.0);
+        assert!(m.must_flee(1));
+        m.health = 9.0;
+        assert!(!m.must_flee(1));
+
+        let m = member_with(20.0, Morale::AfterRounds(2));
+        assert!(!m.must_flee(1));
+        assert!(!m.must_flee(2));
+        assert!(m.must_flee(3));
+    }
+
+    #[test]
+    fn max_health_is_health_plus_damage() {
+        let mut m = member_with(20.0, Morale::Tactical);
+        m.handle_action(&Action::SimpleAttack(SimpleAttackAction {
+            weapon: None,
+            damage: 7.0,
+        }));
+        assert_eq!(m.max_health(), 20.0);
+    }
+
+    #[test]
+    fn fled_members_are_off_the_field() {
+        let mut m = member_with(20.0, Morale::Tactical);
+        assert!(m.on_field() && m.can_act());
+        m.fled = true;
+        assert!(!m.on_field());
+        assert!(!m.can_act());
     }
 }

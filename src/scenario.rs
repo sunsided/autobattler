@@ -2,7 +2,7 @@
 
 use crate::conflict::Conflict;
 use crate::party::Party;
-use crate::party_member::PartyMember;
+use crate::party_member::{Morale, PartyMember};
 use crate::rng::XorShift64;
 use crate::roster::{self, Roster, Side};
 use crate::weapon::{Fists, Stick, Weapon};
@@ -109,9 +109,10 @@ pub fn default_conflict() -> Conflict {
             weapon: Weapon::Fists(Fists { damage: 10.0 }),
             can_act: true,
             speed: 6,
+            morale: Morale::Tactical,
+            fled: false,
         }],
         can_retreat: true,
-        retreated: false,
     };
 
     let villains = Party {
@@ -124,6 +125,8 @@ pub fn default_conflict() -> Conflict {
                 weapon: Weapon::Stick(Stick { damage: 5.0 }),
                 can_act: true,
                 speed: 3,
+                morale: Morale::Tactical,
+                fled: false,
             },
             PartyMember {
                 id: 1,
@@ -132,10 +135,11 @@ pub fn default_conflict() -> Conflict {
                 weapon: Weapon::Fists(Fists { damage: 20.0 }),
                 can_act: true,
                 speed: 5,
+                morale: Morale::Tactical,
+                fled: false,
             },
         ],
         can_retreat: true,
-        retreated: false,
     };
 
     Conflict::new(heroes, villains)
