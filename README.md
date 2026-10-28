@@ -73,13 +73,20 @@ Every task takes extra flags after `--`, e.g. `task run:brawl -- --seed 42 --fas
 - `--scenario NAME` picks a preset; `--heroes N` / `--villains N` generate custom sizes instead
   (a missing side defaults to 2 heroes or 3 villains).
 - `--roster random` (default) rolls 10–25 health, fists (5–20 damage) or a stick (4–12) and speed
-  1–9; `--roster archetypes` makes every member a Brawler, Fencer or Scout (heroes) or a Thug, Brute
-  or Lurker (villains). The ambush keeps its fixed stats.
+  1–9, plus a morale; `--roster archetypes` makes every member a Brawler, Fencer or Scout (heroes)
+  or a Thug, Brute or Lurker (villains). The ambush keeps its fixed stats.
+- Random rosters roll morale per member: 40% tactical, 20% never flees, 30% flees once their health
+  drops to 10–60%, and 10% leave after 2–5 rounds. Archetypes have a fixed one: Brawler tactical,
+  Fencer flees at 30%, Scout leaves after round 3, Thug flees at 40%, Brute never flees, Lurker
+  leaves after round 2. The panel shows it next to the health bar.
 - `--seed N` replays a fight; `--depth N` sets how many actions ahead the tactician looks (1–40,
   default 10). Large fights get slow above about 16.
 
 Every combatant searches anew on their turn, so a fight plays on until one side wins or escapes,
 however far that is beyond the lookahead. After 50 rounds it is called undecided.
+
+Morale was added after seeds were first shared, so a seed from before that change builds a
+different fight now.
 
 ## Rules of ~~Engagement~~ the Game
 
@@ -90,9 +97,16 @@ however far that is beyond the lookahead. After 50 rounds it is called undecided
   - [ ] Attacking a group of opponents (area effects),
   - [ ] Applying an effect to a party member,
   - [ ] Skip the turn, i.e. do nothing.
-- In addition, the faction as a whole can flee.
-  - [x] Fleeing costs: every enemy still standing lands one parting blow, fastest first, then the fight ends.
-- [ ] Party members can panic and either flee, be paralyzed or attack their own faction.
+- In addition, a combatant can flee on their own, and the faction as a whole can order a retreat.
+  - [x] Every flight costs: each enemy who can still act lands one parting blow, fastest first,
+    then the round carries on without the fugitives.
+  - [x] Fled fighters are out of the fight for good; the fight ends once a whole side has fled or fallen.
+  - [x] Morale decides who flees without being told to: *tactical* fighters flee only when the AI
+    says so or the party retreats, *never* fighters never flee and hold the line when the party
+    retreats, *courage* fighters flee once their health drops to a threshold, and some leave
+    after a number of rounds.
+  - [x] The AI counts a fled fighter at half their health when scoring a position.
+- [ ] Party members can be paralyzed or attack their own faction.
  
 As for actions,
 

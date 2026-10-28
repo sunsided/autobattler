@@ -57,11 +57,6 @@ impl Party {
         self.can_retreat
     }
 
-    /// Returns `true` if the party has retreated from the encounter.
-    pub fn has_retreated(&self) -> bool {
-        self.is_gone() && self.members.iter().any(|m| m.fled)
-    }
-
     /// Replaces the member identified by the party member's ID with the
     /// new value provided here.
     pub fn replace_member(&mut self, member: PartyMember) {
@@ -121,7 +116,6 @@ mod tests {
         assert_eq!(p.retreat(), vec![0, 2]);
         assert!(p.members[1].on_field());
         assert!(!p.is_gone());
-        assert!(!p.has_retreated());
     }
 
     #[test]
@@ -133,7 +127,6 @@ mod tests {
         p.members[0].health = 0.0;
         p.members[1].fled = true;
         assert!(p.is_gone());
-        assert!(p.has_retreated());
         assert!(!p.is_defeated());
     }
 }

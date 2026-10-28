@@ -8,8 +8,10 @@ mod reasoning;
 use crate::action::{Action, AppliedAction};
 use crate::conflict::Conflict;
 use crate::party::{Participant, Party};
+use crate::party_member::{Morale, PartyMember};
 use crate::solver::{Event, Outcome};
 use colored::{ColoredString, Colorize};
+use flavor::FleeReason;
 
 /// The kind of a narration beat, so playback can pace beats differently.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -174,7 +176,15 @@ impl<'a> Narrator<'a> {
                 }
                 line
             }
-            AppliedAction::Flee => format!("{actor} flees!"),
+            AppliedAction::Flee => {
+                let member = before.targeted_member(&event.actor);
+                let reason = match member.morale {
+                    Morale::Courage(_) if member.must_flee(event.round) => FleeReason::Courage,
+                    Morale::AfterRounds(_) if member.must_flee(event.round) => FleeReason::Rounds,
+                    _ => FleeReason::Choice,
+                };
+                flavor::flee_line(&actor.to_string(), reason)
+            }
             AppliedAction::Retreat => {
                 // Only those who were still on the field leave with the retreat.
                 let was_on_field = before.action_target(event.actor.party_id);
@@ -194,7 +204,21 @@ impl<'a> Narrator<'a> {
                     .map(|p| self.colored_name(initiator, p).to_string())
                     .collect();
                 let fleeing: Vec<&str> = fleeing.iter().map(String::as_str).collect();
-                retreat_line(&actor.to_string(), &fleeing, actor_alone)
+                // Those who stayed behind hold the line.
+                let holding: Vec<String> = party
+                    .members
+                    .iter()
+                    .filter(|m| m.on_field())
+                    .map(|m| {
+                        let p = Participant {
+                            party_id: party.id,
+                            member_id: m.id,
+                        };
+                        self.colored_name(initiator, &p).to_string()
+                    })
+                    .collect();
+                let holding: Vec<&str> = holding.iter().map(String::as_str).collect();
+                retreat_line(&actor.to_string(), &fleeing, actor_alone, &holding)
             }
         };
 
@@ -226,14 +250,22 @@ impl<'a> Narrator<'a> {
         self.names[party_id].iter().map(String::as_str).collect()
     }
 
-    /// Names the living members of `party`, or all of them if none survived.
+    /// Names the members of `party` still on the field, else the living ones,
+    /// else all of them.
     fn survivor_names(&self, party: &Party) -> Vec<&str> {
-        let alive: Vec<&str> = party
-            .members
-            .iter()
-            .filter(|m| !m.is_dead())
-            .map(|m| self.names[party.id][m.id].as_str())
-            .collect();
+        let names = |keep: fn(&PartyMember) -> bool| -> Vec<&str> {
+            party
+                .members
+                .iter()
+                .filter(|m| keep(m))
+                .map(|m| self.names[party.id][m.id].as_str())
+                .collect()
+        };
+        let on_field = names(PartyMember::on_field);
+        if !on_field.is_empty() {
+            return on_field;
+        }
+        let alive = names(|m| !m.is_dead());
         if alive.is_empty() {
             self.party_names(party.id)
         } else {
@@ -242,23 +274,36 @@ impl<'a> Narrator<'a> {
     }
 }
 
-/// Announces a retreat; `actor_alone` means the actor is the only one fleeing.
-fn retreat_line(actor: &str, fleeing: &[&str], actor_alone: bool) -> String {
-    if actor_alone {
-        return format!("{actor} sounds the retreat and flees!");
+/// Announces a retreat; `actor_alone` means the actor is the only one fleeing,
+/// and `holding` are those who stayed behind.
+fn retreat_line(actor: &str, fleeing: &[&str], actor_alone: bool, holding: &[&str]) -> String {
+    let mut line = if actor_alone {
+        format!("{actor} sounds the retreat and flees!")
+    } else {
+        let verb = if fleeing.len() == 1 { "flees" } else { "flee" };
+        format!(
+            "{actor} sounds the retreat — {} {verb}!",
+            flavor::join_names(fleeing)
+        )
+    };
+    if !holding.is_empty() {
+        let verb = if holding.len() == 1 { "holds" } else { "hold" };
+        line.push_str(&format!(
+            " {} {verb} the line.",
+            flavor::join_names(holding)
+        ));
     }
-    let verb = if fleeing.len() == 1 { "flees" } else { "flee" };
-    format!(
-        "{actor} sounds the retreat — {} {verb}!",
-        flavor::join_names(fleeing)
-    )
+    line
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::conflict::Conflict;
+    use crate::party_member::{Morale, PartyMember};
     use crate::scenario;
     use crate::solver::{Solver, SolverStrategy, MAX_ROUNDS};
+    use crate::weapon::{Fists, Weapon};
 
     fn names() -> Vec<Vec<String>> {
         vec![
@@ -268,11 +313,18 @@ mod tests {
     }
 
     fn render_conflict(conflict: &crate::conflict::Conflict, explain: bool) -> String {
+        render_with(conflict, &names(), explain)
+    }
+
+    fn render_with(
+        conflict: &crate::conflict::Conflict,
+        names: &[Vec<String>],
+        explain: bool,
+    ) -> String {
         colored::control::set_override(false);
-        let names = names();
         let outcome = Solver::play(conflict, SolverStrategy::IterativeDeepening(10), MAX_ROUNDS);
         let narrator = Narrator::new(
-            &names,
+            names,
             NarrationOptions {
                 explain,
                 seed: None,
@@ -380,7 +432,7 @@ mod tests {
     #[test]
     fn retreat_line_when_actor_flees_alone() {
         assert_eq!(
-            retreat_line("Ziuon", &["Ziuon"], true),
+            retreat_line("Ziuon", &["Ziuon"], true, &[]),
             "Ziuon sounds the retreat and flees!"
         );
     }
@@ -388,12 +440,76 @@ mod tests {
     #[test]
     fn retreat_line_names_the_fleeing_party() {
         assert_eq!(
-            retreat_line("Ziuon", &["Ziuon", "Molphige"], false),
+            retreat_line("Ziuon", &["Ziuon", "Molphige"], false, &[]),
             "Ziuon sounds the retreat — Ziuon and Molphige flee!"
         );
         assert_eq!(
-            retreat_line("Ziuon", &["Molphige"], false),
+            retreat_line("Ziuon", &["Molphige"], false, &[]),
             "Ziuon sounds the retreat — Molphige flees!"
         );
+    }
+
+    #[test]
+    fn retreat_line_names_those_holding_the_line() {
+        assert_eq!(
+            retreat_line("Ziuon", &["Ziuon"], true, &["Molphige"]),
+            "Ziuon sounds the retreat and flees! Molphige holds the line."
+        );
+        assert_eq!(
+            retreat_line("Brull", &["Brull"], true, &["Ziuon", "Molphige"]),
+            "Brull sounds the retreat and flees! Ziuon and Molphige hold the line."
+        );
+    }
+
+    fn fighter(health: f32, damage: f32, speed: u32, morale: Morale) -> PartyMember {
+        PartyMember {
+            id: 0,
+            health,
+            damage_taken: 0.0,
+            weapon: Weapon::Fists(Fists { damage }),
+            can_act: true,
+            speed,
+            morale,
+            fled: false,
+        }
+    }
+
+    #[test]
+    fn narrates_a_forced_flight() {
+        colored::control::set_override(false);
+        let conflict = Conflict::new(
+            Party {
+                id: 0,
+                members: vec![fighter(20.0, 10.0, 6, Morale::Tactical)],
+                can_retreat: false,
+            },
+            Party {
+                id: 1,
+                members: vec![fighter(25.0, 10.0, 3, Morale::Courage(1.0))],
+                can_retreat: false,
+            },
+        );
+        let names = vec![vec!["Brull".to_string()], vec!["Ziuon".to_string()]];
+        let text = render_with(&conflict, &names, false);
+        let flight = text.find("'s courage breaks — they flee!").expect(&text);
+        let parting = text.find("Parting blow: ").expect(&text);
+        assert!(parting > flight, "{text}");
+    }
+
+    #[test]
+    fn round_header_omits_fled_members() {
+        let mut conflict = scenario::default_conflict();
+        conflict.opponent.members[0].fled = true;
+        let names = names();
+        let narrator = Narrator::new(
+            &names,
+            NarrationOptions {
+                explain: false,
+                seed: None,
+            },
+        );
+        let header = narrator.round_header(1, &conflict);
+        assert!(!header.contains("Ziuon"), "{header}");
+        assert!(header.contains("Molphige"), "{header}");
     }
 }

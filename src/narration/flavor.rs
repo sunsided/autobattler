@@ -49,6 +49,26 @@ pub(crate) fn join_names(names: &[&str]) -> String {
     }
 }
 
+/// Why a fighter leaves the fight on their own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FleeReason {
+    /// The fighter chose to flee.
+    Choice,
+    /// The fighter's courage broke.
+    Courage,
+    /// The fighter has fought their share of rounds.
+    Rounds,
+}
+
+/// Announces a single fighter fleeing.
+pub(crate) fn flee_line(actor: &str, reason: FleeReason) -> String {
+    match reason {
+        FleeReason::Choice => format!("{actor} flees!"),
+        FleeReason::Courage => format!("{actor}'s courage breaks — they flee!"),
+        FleeReason::Rounds => format!("{actor} has had enough and flees!"),
+    }
+}
+
 /// The opening line of a fight.
 pub(crate) fn intro(heroes: &[&str], villains: &[&str]) -> String {
     let verb = if heroes.len() > 1 { "stand" } else { "stands" };
@@ -158,6 +178,19 @@ mod tests {
         assert_eq!(base_verb(&fists(1.0)), "punch");
         assert_eq!(base_verb(&stick(1.0)), "whack");
         assert_eq!(base_verb(&stare()), "glare at");
+    }
+
+    #[test]
+    fn flee_lines_by_reason() {
+        assert_eq!(flee_line("Ziuon", FleeReason::Choice), "Ziuon flees!");
+        assert_eq!(
+            flee_line("Ziuon", FleeReason::Courage),
+            "Ziuon's courage breaks — they flee!"
+        );
+        assert_eq!(
+            flee_line("Ziuon", FleeReason::Rounds),
+            "Ziuon has had enough and flees!"
+        );
     }
 
     #[test]

@@ -1,6 +1,7 @@
 //! Party status panel: one row per member with a health bar.
 
 use crate::conflict::Conflict;
+use crate::party_member::Morale;
 
 /// Number of cells in a health bar.
 const BAR_WIDTH: usize = 20;
@@ -16,6 +17,16 @@ pub(crate) fn health_bar(health: f32, max: f32) -> String {
         filled = filled.max(1);
     }
     format!("{}{}", "█".repeat(filled), "░".repeat(BAR_WIDTH - filled))
+}
+
+/// Describes a morale worth showing; `Tactical` is the default and stays silent.
+pub(crate) fn morale_tag(morale: Morale) -> Option<String> {
+    match morale {
+        Morale::Tactical => None,
+        Morale::Never => Some("never flees".to_string()),
+        Morale::Courage(p) => Some(format!("flees at ≤{}%", (p * 100.0).round() as u32)),
+        Morale::AfterRounds(n) => Some(format!("flees in round {}", n + 1)),
+    }
 }
 
 /// Builds the status rows for all members: initiator party first, then the
@@ -44,15 +55,19 @@ pub(crate) fn panel_lines(start: &Conflict, now: &Conflict, names: &[Vec<String>
             let name = &names[now_party.id][member.id];
             let status = if member.is_dead() {
                 "✝ fallen".to_string()
-            } else if now_party.has_retreated() {
+            } else if member.fled {
                 "↩ fled".to_string()
             } else {
-                format!(
+                let mut status = format!(
                     "{} {}/{}",
                     health_bar(member.health, max),
                     member.health,
                     max
-                )
+                );
+                if let Some(tag) = morale_tag(member.morale) {
+                    status.push_str(&format!("  {tag}"));
+                }
+                status
             };
             rows.push(format!("  {name:<width$}  {status}"));
         }
@@ -138,6 +153,42 @@ mod tests {
         let rows = panel_lines(&start, &now, &names);
         assert_eq!(rows[1], "  Ziuon     ↩ fled");
         assert_eq!(rows[2], "  Molphige  ✝ fallen");
+    }
+
+    #[test]
+    fn morale_tags() {
+        assert_eq!(morale_tag(Morale::Tactical), None);
+        assert_eq!(morale_tag(Morale::Never).as_deref(), Some("never flees"));
+        assert_eq!(
+            morale_tag(Morale::Courage(0.4)).as_deref(),
+            Some("flees at ≤40%")
+        );
+        assert_eq!(
+            morale_tag(Morale::AfterRounds(2)).as_deref(),
+            Some("flees in round 3")
+        );
+    }
+
+    #[test]
+    fn panel_marks_fled_members_individually() {
+        let names = names(&[&["Brull"], &["Ziuon", "Molphige"]]);
+        let start = Conflict::new(
+            party(0, vec![member(0, 20.0)]),
+            party(1, vec![member(0, 15.0), member(1, 10.0)]),
+        );
+        let mut now = start.clone();
+        now.opponent.members[1].fled = true;
+        now.opponent.members[0].morale = Morale::Courage(0.3);
+        let rows = panel_lines(&start, &now, &names);
+        assert_eq!(
+            rows[1],
+            format!(
+                "  Ziuon     {} 15/15  flees at ≤30%",
+                health_bar(15.0, 15.0)
+            )
+        );
+        assert_eq!(rows[2], "  Molphige  ↩ fled");
+        assert!(rows[0].contains('█'));
     }
 
     #[test]
