@@ -177,6 +177,59 @@ As for actions,
 - [ ] Some actions take preparation (e.g. preparing a magic spell),
 - [ ] Some actions have requirements (e.g. a potion must exist to be used)
 
+## How the tactician picks a move
+
+Both sides are played by the same search ([`src/solver.rs`](src/solver.rs)). It plays the
+initiating party, the heroes, as the side that wants the score up. It assumes the other side
+always answers with whatever hurts the heroes most.
+
+**One move at a time.** Before every single action, the solver searches the tree of possible
+continuations from the current state, plays only the first move of the best line it found, then
+searches again from the new state. That repeats until one side has fallen or fled, or after 50
+rounds (`Solver::play`).
+
+**The tree.** Each level of the tree is one combatant's turn, in initiative order, so
+consecutive turns of the same side are consecutive levels of the same kind. A heroes' turn is a
+*max* node: pick the child with the highest score. A villains' turn is a *min* node: pick the
+lowest. The children of a node are every action that combatant may take this turn:
+
+- an attack on each enemy still on the field,
+- fleeing alone, or ordering the whole party to retreat, only for *tactical* fighters whose party
+  may retreat,
+- nothing but fleeing for a fighter whose courage has broken,
+- during parting blows, only attacks on the fighters who are just leaving.
+
+**Scoring a position** ([`src/utility_value.rs`](src/utility_value.rs)) always takes the
+heroes' point of view:
+
+| Position                         | Score                                                     |
+|----------------------------------|-----------------------------------------------------------|
+| Heroes defeated                  | minus all damage the heroes took                          |
+| Heroes all fled                  | a tenth of that, so retreating beats dying                |
+| Villains defeated                | the heroes' remaining health, fled heroes at half         |
+| Villains all fled                | a tenth of the remaining health                           |
+| Undecided, search depth reached  | a tenth of the remaining health, as a guess               |
+
+Scaling the open and partial outcomes by a tenth makes a clean win worth far more than a position
+that merely looks good, so the heroes go for the kill when they can see it.
+
+**Alpha-beta pruning.** The search runs depth-first and carries a window `[α, β]` down the
+tree: α is the score the heroes are already sure of elsewhere, β the score the villains are
+already sure of. As soon as a node's score falls outside that window, the side choosing above it
+would never let the fight get here, so its remaining moves are skipped (a *cut*). A villain node
+also stops as soon as it finds any line that defeats the heroes or drives them off, since that is
+bad enough.
+
+**Iterative deepening.** `--depth N` (default 10) caps how many actions ahead a search looks. The
+solver first searches 1 action deep, then 2, and so on up to `N`. It stops early when a search
+sees the whole fight to its end, or finds a win for the heroes, so easy positions stay cheap.
+
+**The tactician notes.** After each search, the solver walks back down the best line and
+collects the other moves the acting combatant tried, ranked from that combatant's point of view.
+Those are the `↳ tactician: expects …` and `alt: …` lines in the log. A cut leaves a move's score
+only partly known, which the log marks as `≥` or `≤`. The log shows the two best alternatives;
+`+N more` counts the other ones that were tried, and `N not examined` the moves a cut skipped.
+
 ## Things to do
 
 - [x] Regular minimax ([`src/solver.rs`](src/solver.rs)).
