@@ -27,12 +27,24 @@ pub(crate) fn outcome_words(score: &TerminalState, actor_is_initiator: bool) -> 
 
 /// Renders a score, marking it as a bound or approximation where it is not exact.
 pub(crate) fn score_text(score: &TerminalState, bound: Bound) -> String {
-    let value = score.value();
+    let value = round_score(score.value());
     match bound {
-        Bound::Exact => format!("{value}"),
+        Bound::Exact => value,
         Bound::AtMost => format!("≤ {value}"),
         Bound::AtLeast => format!("≥ {value}"),
         Bound::Approximate => format!("≈ {value}"),
+    }
+}
+
+/// Rounds a score to two decimals, dropping trailing zeros.
+///
+/// Scores scaled by a tenth carry `f32` noise, e.g. `3.1000001`.
+fn round_score(value: f32) -> String {
+    let text = format!("{value:.2}");
+    let text = text.trim_end_matches('0').trim_end_matches('.');
+    match text {
+        "-0" => "0".to_string(),
+        _ => text.to_string(),
     }
 }
 
@@ -200,6 +212,26 @@ mod tests {
             assert_eq!(outcome_words(&score, true), initiator, "{score:?}");
             assert_eq!(outcome_words(&score, false), opponent, "{score:?}");
         }
+    }
+
+    #[test]
+    fn score_text_hides_float_noise() {
+        let cases = [
+            (31.0 * 0.1, "3.1"),
+            (42.0 * 0.1, "4.2"),
+            (28.5 * 0.1, "2.85"),
+            (3.05, "3.05"),
+            (-0.001, "0"),
+            (12.0, "12"),
+        ];
+        for (value, expected) in cases {
+            let score = TerminalState::Heuristic(value);
+            assert_eq!(score_text(&score, Bound::Exact), expected, "{value}");
+        }
+        assert_eq!(
+            score_text(&TerminalState::Heuristic(31.0 * 0.1), Bound::AtLeast),
+            "≥ 3.1"
+        );
     }
 
     #[test]
