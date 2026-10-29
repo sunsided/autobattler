@@ -1,13 +1,13 @@
 Round 1 · action 3/3 · ⏸ 1×                                      ambush · seed 7
 Brull(6) ▸ Molphige(5)
-┌ heroes ──────────────────────────────────────────────────────────── villains ┐
-│Brull ██████████ 20/20                     ── 10 ──▶ Ziuon    ↩ fled          │
-│fists 10 · speed 6                                           stick 5 · speed 3│
-│                                                                              │
-│                                                     Molphige ✝ fallen        │
-│                                                            fists 20 · speed 5│
-└──────────────────────────────────────────────────────────────────────────────┘
-┌ log ─────────────────────────────────────────────────────────────────────────┐
+╔ the brawlers ════════════════════════════════════════════════════ the rabble ╗
+║Brull ▰▰▰▰▰▰▰▰▰▰ 20/20                     ── 10 ──▶ Ziuon    ↩ fled          ║
+║fists 10 · speed 6                                           stick 5 · speed 3║
+║                                                                              ║
+║                                                     Molphige ✝ fallen        ║
+║                                                            fists 20 · speed 5║
+╚══════════════════════════════════════════════════════════════════════════════╝
+╭ the chronicle ───────────────────────────────────────────────────────────────╮
 │       alt: punch Ziuon    → defeat  (≤ -20)                                  │
 │       alt: glare at Ziuon → defeat  (≤ -20)                                  │
 │       +2 more                                                                │
@@ -20,5 +20,5 @@ Brull(6) ▸ Molphige(5)
 │       alt: glare at Ziuon → they escape  (2)                                 │
 │🏁 Ziuon fled; Brull holds the field after 1 round.                           │
 │(seed 7, 221 evaluations, 44 cuts, depth 8, 1.5ms)                            │
-└──────────────────────────────────────────────────────────────────────────────┘
+╰──────────────────────────────────────────────────────────────────────────────╯
 space pause · ← → step · +/- speed · t tactician · b back · q quit
