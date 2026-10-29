@@ -66,14 +66,14 @@ text log is printed instead. This is what the frame looks like at the first acti
 ```
 Round 1 · action 1/3 · ⏸ 1×                                      ambush · seed 7
 Brull(6) ▸ Molphige(5) ▸ Ziuon(3)
-┌ heroes ──────────────────────────────────────────────────────────── villains ┐
-│Brull ██████████ 20/20                               Ziuon    ██████████ 15/15│
-│fists 10 · speed 6                                           stick 5 · speed 3│
-│                                                                              │
-│                                           ── 10 ──▶ Molphige ✝ fallen        │
-│                                                            fists 20 · speed 5│
-└──────────────────────────────────────────────────────────────────────────────┘
-┌ log ─────────────────────────────────────────────────────────────────────────┐
+╔ the brawlers ════════════════════════════════════════════════════ the rabble ╗
+║Brull ▰▰▰▰▰▰▰▰▰▰ 20/20                               Ziuon    ▰▰▰▰▰▰▰▰▰▰ 15/15║
+║fists 10 · speed 6                                           stick 5 · speed 3║
+║                                                                              ║
+║                                           ── 10 ──▶ Molphige ✝ fallen        ║
+║                                                            fists 20 · speed 5║
+╚══════════════════════════════════════════════════════════════════════════════╝
+╭ the chronicle ───────────────────────────────────────────────────────────────╮
 │⚔  Brull stands against Ziuon and Molphige.                                   │
 │Brull jabs Molphige — 10 damage. Molphige is down!                            │
 │   ↳ tactician: expects they escape (2)                                       │
@@ -86,13 +86,13 @@ Brull(6) ▸ Molphige(5) ▸ Ziuon(3)
 │                                                                              │
 │                                                                              │
 │                                                                              │
-└──────────────────────────────────────────────────────────────────────────────┘
+╰──────────────────────────────────────────────────────────────────────────────╯
 space pause · ← → step · +/- speed · t tactician · b back · q quit
 ```
 
 Menu:
 
-- `↑` / `↓` (or `k` / `j`) move between the scenarios, the hero and villain counts, the roster and the seed.
+- `↑` / `↓` (or `k` / `j`) move between the scenarios, the brawler and rabble counts, the roster and the seed.
 - `←` / `→` (or `h` / `l`) change the value on that row.
 - `0`-`9` and `Backspace` edit the seed on its row (the first key after arriving starts a new number); `r` rolls a new one.
 - `enter` opens the lineup; `q`, `Esc` or `Ctrl-C` quit.

@@ -15,7 +15,7 @@ use crate::weapon::Weapon;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Paragraph};
+use ratatui::widgets::{Block, BorderType, Paragraph};
 use ratatui::Frame;
 use std::time::Duration;
 
@@ -23,7 +23,7 @@ const MIN_WIDTH: u16 = 80;
 const MIN_HEIGHT: u16 = 24;
 const TOO_SMALL: &str = "terminal too small (needs 80×24)";
 const KEY_BAR: &str = "space pause · ← → step · +/- speed · t tactician · b back · q quit";
-const LINEUP_KEY_BAR: &str = "space begin · b back · q quit";
+const LINEUP_KEY_BAR: &str = "space brawl · b back · q quit";
 const PARTING_PREFIX: &str = "parting blows ▸ ";
 /// Cells in a card's health bar.
 const BAR_CELLS: usize = 10;
@@ -31,8 +31,16 @@ const BAR_CELLS: usize = 10;
 const BAND: u16 = 14;
 /// The log's minimum height: six lines plus its borders.
 const MIN_LOG: u16 = 8;
-const HERO: Color = Color::Blue;
-const VILLAIN: Color = Color::Magenta;
+/// Ale amber.
+const HERO: Color = Color::Rgb(0xD6, 0xA0, 0x46);
+/// Bog green.
+const VILLAIN: Color = Color::Rgb(0x7A, 0x96, 0x50);
+/// Fresh blood, for health just lost and for parting blows.
+const BLOOD: Color = Color::Rgb(0xDC, 0x32, 0x28);
+/// Pipe smoke, for health already gone.
+const SMOKE: Color = Color::Rgb(0x5A, 0x55, 0x50);
+/// Oak, for borders and their titles.
+pub(crate) const OAK: Color = Color::Rgb(0x8B, 0x5E, 0x3C);
 
 /// Everything about a solved fight the view needs, besides the playback state.
 pub struct FightView<'a> {
@@ -156,9 +164,9 @@ pub fn draw_lineup(frame: &mut Frame, lineup: &LineupView, ready: bool) {
         seed: lineup.seed,
     };
     let (status, prompt) = if ready {
-        ("ready", "Press space to begin.")
+        ("ready", "Press space to throw the first punch.")
     } else {
-        ("tactician thinking…", "The tactician is thinking…")
+        ("sizing up the room…", "The tactician sizes up the room…")
     };
     let chrome = Chrome {
         header_left: format!("Round {} · {status}", lineup.start.round),
@@ -279,7 +287,7 @@ fn initiative_line<'a>(app: &App, fight: &'a FightView, width: u16) -> Line<'a> 
     let prefix = state.parting.is_some().then(|| {
         Span::styled(
             PARTING_PREFIX,
-            Style::new().fg(Color::Red).add_modifier(Modifier::BOLD),
+            Style::new().fg(BLOOD).add_modifier(Modifier::BOLD),
         )
     });
     let join = |separator: &'static str| {
@@ -314,9 +322,11 @@ fn initiative_line<'a>(app: &App, fight: &'a FightView, width: u16) -> Line<'a> 
 
 fn draw_standoff(frame: &mut Frame, area: Rect, stride: u16, app: &App, fight: &FightView) {
     let block = Block::bordered()
-        .title(Line::from(" heroes ").style(Style::new().fg(HERO)))
+        .border_type(BorderType::Double)
+        .border_style(Style::new().fg(OAK))
+        .title(Line::from(" the brawlers ").style(Style::new().fg(HERO)))
         .title(
-            Line::from(" villains ")
+            Line::from(" the rabble ")
                 .style(Style::new().fg(VILLAIN))
                 .right_aligned(),
         );
@@ -468,11 +478,11 @@ fn party_cards<'a>(
                 } else {
                     0
                 };
-                line1.push(Span::styled("█".repeat(filled), Style::new().fg(color)));
-                line1.push(Span::styled("█".repeat(lost), Style::new().fg(Color::Red)));
+                line1.push(Span::styled("▰".repeat(filled), Style::new().fg(color)));
+                line1.push(Span::styled("▰".repeat(lost), Style::new().fg(BLOOD)));
                 line1.push(Span::styled(
-                    "░".repeat(BAR_CELLS - filled - lost),
-                    Style::new().fg(Color::DarkGray),
+                    "▱".repeat(BAR_CELLS - filled - lost),
+                    Style::new().fg(SMOKE),
                 ));
                 line1.push(Span::raw(format!(
                     " {:>max_width$}/{max}",
@@ -532,8 +542,16 @@ fn fight_log(app: &App, fight: &FightView) -> Vec<String> {
     lines
 }
 
+/// A rounded oak box with the title in oak.
+pub(crate) fn themed_block(title: &str) -> Block<'_> {
+    Block::bordered()
+        .border_type(BorderType::Rounded)
+        .border_style(Style::new().fg(OAK))
+        .title(title)
+}
+
 fn draw_log(frame: &mut Frame, area: Rect, lines: &[String]) {
-    let block = Block::bordered().title(" log ");
+    let block = themed_block(" the chronicle ");
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -869,11 +887,11 @@ mod tests {
     #[test]
     fn lineup_thinking_frame() {
         let text = lineup_text(&ambush(), false, 80, 24);
-        assert!(text.contains("Round 1 · tactician thinking…"), "{text}");
-        assert!(text.contains("The tactician is thinking…"), "{text}");
+        assert!(text.contains("Round 1 · sizing up the room…"), "{text}");
+        assert!(text.contains("The tactician sizes up the room…"), "{text}");
         assert_eq!(
             text.lines().last().unwrap(),
-            "space begin · b back · q quit"
+            "space brawl · b back · q quit"
         );
         assert_golden(&text, include_str!("golden/lineup_thinking_frame.txt"));
     }
@@ -882,7 +900,10 @@ mod tests {
     fn lineup_ready_frame() {
         let text = lineup_text(&ambush(), true, 80, 24);
         assert!(text.contains("Round 1 · ready"), "{text}");
-        assert!(text.contains("Press space to begin."), "{text}");
+        assert!(
+            text.contains("Press space to throw the first punch."),
+            "{text}"
+        );
         assert_golden(&text, include_str!("golden/lineup_ready_frame.txt"));
     }
 
@@ -895,7 +916,7 @@ mod tests {
         // Rows 2.. through the bottom border of the standoff.
         let bottom = fight
             .lines()
-            .position(|l| l.starts_with('└'))
+            .position(|l| l.starts_with('╚'))
             .expect("standoff border");
         let rows = |text: &str| {
             text.lines()
@@ -1008,9 +1029,9 @@ mod tests {
         let text = f.render(&f.app(0, true), 80, 24);
         let rows: Vec<&str> = text
             .lines()
-            .skip_while(|l| !l.starts_with("┌ log"))
+            .skip_while(|l| !l.starts_with("╭ the chronicle"))
             .skip(1)
-            .take_while(|l| !l.starts_with('└'))
+            .take_while(|l| !l.starts_with('╰'))
             .collect();
         for row in &rows {
             assert!(display_width(row) <= 80, "{text}");
@@ -1044,12 +1065,29 @@ mod tests {
             flashing.tick(std::time::Duration::from_millis(50));
         }
         assert!(flashing.flashing());
-        let full = |t: &str| t.matches('█').count();
+        let full = |t: &str| t.matches('▰').count();
         let still_text = f.render(&still, 80, 24);
         let flash_text = f.render(&flashing, 80, 24);
         assert!(
             full(&flash_text) > full(&still_text),
             "{still_text}\n{flash_text}"
         );
+    }
+
+    #[test]
+    fn standoff_wears_the_tavern_palette() {
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+        let f = ambush();
+        let app = f.app(0, true);
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|frame| draw(frame, &app, &f.view())).unwrap();
+        let buffer = terminal.backend().buffer();
+        // Row 2 is the standoff's top border; row 3 holds Brull's card, whose
+        // health bar starts at column 7.
+        assert_eq!(buffer[(0, 2)].symbol(), "╔");
+        assert_eq!(buffer[(0, 2)].fg, OAK);
+        assert_eq!(buffer[(7, 3)].symbol(), "▰");
+        assert_eq!(buffer[(7, 3)].fg, HERO);
     }
 }

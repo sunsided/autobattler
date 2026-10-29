@@ -4,14 +4,14 @@ use crate::cli::MAX_PARTY;
 use crate::rng::XorShift64;
 use crate::roster::Roster;
 use crate::scenario::{Preset, Setup};
-use crate::tui::view::too_small;
+use crate::tui::view::{themed_block, too_small};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Paragraph};
+use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
-const TITLE: &str = "autobattler · choose a fight";
+const TITLE: &str = "autobattler · who picks a fight tonight?";
 const KEY_BAR: &str = "↑↓ choose · ←→ change · r reroll · 0-9 seed · enter fight · q quit";
 
 /// A line of the menu.
@@ -224,8 +224,8 @@ pub fn draw_menu(frame: &mut Frame, menu: &Menu) {
 
     let bold = Style::new().add_modifier(Modifier::BOLD);
     frame.render_widget(Paragraph::new(TITLE).style(bold), title);
-    draw_block(frame, scenario, " scenario ", &ROWS[..5], menu);
-    draw_block(frame, settings, " settings ", &ROWS[5..], menu);
+    draw_block(frame, scenario, " the bout ", &ROWS[..5], menu);
+    draw_block(frame, settings, " house rules ", &ROWS[5..], menu);
     frame.render_widget(
         Paragraph::new(KEY_BAR).style(Style::new().add_modifier(Modifier::DIM)),
         keys,
@@ -233,7 +233,7 @@ pub fn draw_menu(frame: &mut Frame, menu: &Menu) {
 }
 
 fn draw_block(frame: &mut Frame, area: Rect, title: &str, rows: &[Row], menu: &Menu) {
-    let block = Block::bordered().title(title);
+    let block = themed_block(title);
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let lines: Vec<Line> = rows.iter().map(|&row| row_line(menu, row)).collect();
@@ -248,8 +248,8 @@ fn row_line(menu: &Menu, row: Row) -> Line<'static> {
             "custom",
             format!("{} vs {} generated", menu.heroes(), menu.villains()),
         ),
-        Row::Heroes => ("heroes", stepper(menu.heroes())),
-        Row::Villains => ("villains", stepper(menu.villains())),
+        Row::Heroes => ("brawlers", stepper(menu.heroes())),
+        Row::Villains => ("rabble", stepper(menu.villains())),
         Row::Roster if !menu.enabled(row) => ("roster", "fixed".to_string()),
         Row::Roster => (
             "roster",

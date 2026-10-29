@@ -1,24 +1,24 @@
 Round 1 · action 1/22 · ⏸ 1×                                 custom 4v4 · seed 7
 Thrakgash(8)▸Halor(7)▸Halin(7)▸Kerus(7)▸Elus(6)▸Balphige(4)▸Kramul(4)▸Balion(2)
-┌ heroes ──────────────────────────────────────────────────────────── villains ┐
-│Elus  ██████░░░░ 12/20 ◀── 8 ──                     Balion    ██████████ 25/25│
-│fists 10 · speed 6                            fists 15 · speed 2 · never flees│
-│                                                                              │
-│Halor ██████████ 16/16                              Balphige  ██████████ 15/15│
-│stick 8 · speed 7 · flees at ≤30%            stick 6 · speed 4 · flees at ≤40%│
-│                                                                              │
-│Halin ██████████ 16/16                              Kramul    ██████████ 15/15│
-│stick 8 · speed 7 · flees at ≤30%            stick 6 · speed 4 · flees at ≤40%│
-│                                                                              │
-│Kerus ██████████ 16/16                              Thrakgash ██████████ 10/10│
-│stick 8 · speed 7 · flees at ≤30%         fists 8 · speed 8 · flees in round 3│
-└──────────────────────────────────────────────────────────────────────────────┘
-┌ log ─────────────────────────────────────────────────────────────────────────┐
+╔ the brawlers ════════════════════════════════════════════════════ the rabble ╗
+║Elus  ▰▰▰▰▰▰▱▱▱▱ 12/20 ◀── 8 ──                     Balion    ▰▰▰▰▰▰▰▰▰▰ 25/25║
+║fists 10 · speed 6                            fists 15 · speed 2 · never flees║
+║                                                                              ║
+║Halor ▰▰▰▰▰▰▰▰▰▰ 16/16                              Balphige  ▰▰▰▰▰▰▰▰▰▰ 15/15║
+║stick 8 · speed 7 · flees at ≤30%            stick 6 · speed 4 · flees at ≤40%║
+║                                                                              ║
+║Halin ▰▰▰▰▰▰▰▰▰▰ 16/16                              Kramul    ▰▰▰▰▰▰▰▰▰▰ 15/15║
+║stick 8 · speed 7 · flees at ≤30%            stick 6 · speed 4 · flees at ≤40%║
+║                                                                              ║
+║Kerus ▰▰▰▰▰▰▰▰▰▰ 16/16                              Thrakgash ▰▰▰▰▰▰▰▰▰▰ 10/10║
+║stick 8 · speed 7 · flees at ≤30%         fists 8 · speed 8 · flees in round 3║
+╚══════════════════════════════════════════════════════════════════════════════╝
+╭ the chronicle ───────────────────────────────────────────────────────────────╮
 │  Thrakgash.                                                                  │
 │Thrakgash jabs Elus — 8 damage.                                               │
 │   ↳ tactician: expects unclear (6)                                           │
 │       alt: punch Halor → unclear  (≥ 6)                                      │
 │       alt: punch Halin → unclear  (≥ 6)                                      │
 │       +5 more                                                                │
-└──────────────────────────────────────────────────────────────────────────────┘
+╰──────────────────────────────────────────────────────────────────────────────╯
 space pause · ← → step · +/- speed · t tactician · b back · q quit
