@@ -236,4 +236,15 @@ only partly known, which the log marks as `≥` or `≤`. The log shows the two 
 - [x] Rounds with speed-ordered initiative, one combatant per turn ([`src/action_iterator.rs`](src/action_iterator.rs)).
 - [x] Implement Alpha-Beta pruning ([`src/value.rs`](src/value.rs)).
 - [x] Implement Iterative Deepening.
-- [ ] Implement A*-like heuristics.
+- [ ] Search the best line of the previous depth first when deepening.
+- [ ] Order moves by a heuristic (e.g. the blow that drops the weakest enemy first), so cuts come earlier.
+- [ ] Cache positions already scored (a transposition table): hitting A then B and B then A meet again.
+- [ ] Try MTD(f), the practical form of SSS\*, on top of that.
+
+A\* itself does not fit: it searches for the cheapest path when one side controls every move, and
+here the villains answer every move with their worst. With the villains fixed to a simple rule,
+the fight would become a path search A\* could run, but the only estimate of the remaining cost that
+never overshoots is about zero, so A\* would do no better than a plain cheapest-first search, and
+the fight would no longer be minimax. The best-first relatives built for two-player games, SSS\*,
+B\* and proof-number search, are where the idea lives on, and MTD(f) (Plaat et al., 1996) explores
+the same positions as SSS\* while needing far less memory.
