@@ -383,12 +383,12 @@ mod tests {
 
     #[test]
     fn golden_with_explanations() {
-        assert_eq!(render(true), include_str!("golden/explain.txt"));
+        assert_eq!(render(true), include_str!("narration/golden/explain.txt"));
     }
 
     #[test]
     fn golden_without_explanations() {
-        assert_eq!(render(false), include_str!("golden/plain.txt"));
+        assert_eq!(render(false), include_str!("narration/golden/plain.txt"));
     }
 
     #[test]
