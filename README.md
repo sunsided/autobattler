@@ -10,6 +10,8 @@ Bard's Tale, etc.
 
 This is definitely not rocket science being done here. Expect more minimax than AlphaZero.
 
+![A 4 vs 4 brawl in the TUI: health bars, a fresh hit flashing red and the tactician's notes in the chronicle](assets/tui.png)
+
 ## Example outcome
 
 The following is an example of how the default ambush may unfold. (Names come from the seed, so
