@@ -11,6 +11,12 @@ const TOLERANCE: f32 = 1e-4;
 /// first event of each, scores whose allowed ranges overlap.
 ///
 /// Without a first event on both sides, the outcome scores are compared.
+///
+/// This deliberately compares the chosen move's score and bound, which is
+/// stricter than comparing the root's range: at a minimizing root cut by the
+/// villain defeat shortcut the root is only an upper bound while the chosen
+/// child may be exact. Being stricter is acceptable because the bench raises
+/// no false alarm with it.
 pub fn agree(a: &Outcome, b: &Outcome) -> bool {
     if discriminant(&a.outcome) != discriminant(&b.outcome) {
         return false;

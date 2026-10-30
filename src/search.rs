@@ -5,7 +5,7 @@ mod alphabeta;
 pub mod bench;
 mod mtdf;
 mod ordering;
-pub mod positions;
+mod positions;
 mod table;
 
 use crate::conflict::Conflict;

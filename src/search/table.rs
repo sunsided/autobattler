@@ -1,8 +1,8 @@
 //! The transposition table: scores of positions already searched.
 
-use crate::conflict::Conflict;
+use crate::conflict::{Conflict, Parting};
 use crate::party::Party;
-use crate::party_member::Morale;
+use crate::party_member::{Morale, PartyMember};
 use crate::value::{Bound, TerminalState};
 use crate::weapon::Weapon;
 use std::collections::HashMap;
@@ -104,34 +104,62 @@ impl Hasher for PassThrough {
 }
 
 fn hash_position(state: &Conflict, hasher: &mut impl Hasher) {
-    state.round.hash(hasher);
-    state.slot.hash(hasher);
-    match &state.parting {
+    // Exhaustive, so a new field is a compile error until it is hashed.
+    let Conflict {
+        initiator,
+        opponent,
+        round,
+        slot,
+        parting,
+    } = state;
+    round.hash(hasher);
+    slot.hash(hasher);
+    match parting {
         None => 0u8.hash(hasher),
-        Some(parting) => {
+        Some(Parting {
+            fleeing_party,
+            fleeing,
+            resume_slot,
+            next,
+        }) => {
             1u8.hash(hasher);
-            parting.fleeing_party.hash(hasher);
-            parting.fleeing.hash(hasher);
-            parting.resume_slot.hash(hasher);
-            parting.next.hash(hasher);
+            fleeing_party.hash(hasher);
+            fleeing.hash(hasher);
+            resume_slot.hash(hasher);
+            next.hash(hasher);
         }
     }
-    hash_party(&state.initiator, hasher);
-    hash_party(&state.opponent, hasher);
+    hash_party(initiator, hasher);
+    hash_party(opponent, hasher);
 }
 
 fn hash_party(party: &Party, hasher: &mut impl Hasher) {
-    party.id.hash(hasher);
-    party.can_retreat.hash(hasher);
-    party.members.len().hash(hasher);
-    for member in &party.members {
-        member.id.hash(hasher);
-        member.health.to_bits().hash(hasher);
-        member.damage_taken.to_bits().hash(hasher);
-        member.fled.hash(hasher);
-        member.can_act.hash(hasher);
-        member.speed.hash(hasher);
-        match member.morale {
+    let Party {
+        id,
+        members,
+        can_retreat,
+    } = party;
+    id.hash(hasher);
+    can_retreat.hash(hasher);
+    members.len().hash(hasher);
+    for member in members {
+        let PartyMember {
+            id,
+            health,
+            damage_taken,
+            weapon,
+            can_act,
+            speed,
+            morale,
+            fled,
+        } = member;
+        id.hash(hasher);
+        health.to_bits().hash(hasher);
+        damage_taken.to_bits().hash(hasher);
+        fled.hash(hasher);
+        can_act.hash(hasher);
+        speed.hash(hasher);
+        match morale {
             Morale::Tactical => 0u8.hash(hasher),
             Morale::Never => 1u8.hash(hasher),
             Morale::Courage(threshold) => {
@@ -143,11 +171,11 @@ fn hash_party(party: &Party, hasher: &mut impl Hasher) {
                 rounds.hash(hasher);
             }
         }
-        match &member.weapon {
+        match weapon {
             Weapon::Fists(_) => 0u8.hash(hasher),
             Weapon::Stick(_) => 1u8.hash(hasher),
         }
-        member.weapon.damage().to_bits().hash(hasher);
+        weapon.damage().to_bits().hash(hasher);
     }
 }
 

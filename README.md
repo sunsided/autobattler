@@ -36,12 +36,12 @@ The block below is the `--plain` text log (`task run:plain`), the output a pipe 
 ══ Round 1 ══  initiative: Brull(6) → Molphige(5) → Ziuon(3)
 Brull jabs Molphige — 10 damage. Molphige is down!
    ↳ tactician: expects they escape (2)
-       alt: punch Ziuon    → defeat  (≤ -20)
-       alt: glare at Ziuon → defeat  (≤ -20)
+       alt: glare at Molphige → defeat  (≤ -20)
+       alt: punch Ziuon       → defeat  (≤ -20)
        +2 more
 Ziuon flees!
    ↳ tactician: expects escape (2)
-       alt: whack Brull    → defeat  (10)
+       alt: whack Brull    → defeat  (≥ 10)
        alt: glare at Brull → defeat  (≥ 14)
 Parting blow: Brull jabs Ziuon — 10 damage.
    ↳ tactician: expects they escape (2)

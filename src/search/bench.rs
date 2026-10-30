@@ -1,7 +1,7 @@
 //! The bench: every search kind on the fixed positions, side by side.
 
 use super::agreement::agree;
-use super::positions::bench_positions;
+use super::positions::{bench_positions, BenchPosition};
 use super::{engage, Search, SearchKind};
 use crate::solver::Outcome;
 use std::time::Duration;
@@ -48,7 +48,7 @@ pub fn run(depth: usize) -> Vec<Row> {
 /// Totals searched `outcomes`, checking each against the `basic` result.
 fn total(
     name: &'static str,
-    positions: &[super::positions::BenchPosition],
+    positions: &[BenchPosition],
     outcomes: &[Outcome],
     basic: &[Outcome],
 ) -> Row {
@@ -135,6 +135,22 @@ pub fn render(rows: &[Row], depth: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn run_matches_basic_on_every_position() {
+        let rows = run(2);
+        let names: Vec<_> = rows.iter().map(|row| row.name).collect();
+        let kinds: Vec<_> = SearchKind::ALL.iter().map(|kind| kind.name()).collect();
+        assert_eq!(names, kinds);
+        for row in &rows {
+            assert!(row.positions > 0, "{} searched no positions", row.name);
+            assert_eq!(
+                row.matches, row.positions,
+                "{}: {:?}",
+                row.name, row.mismatches
+            );
+        }
+    }
 
     #[test]
     fn render_layout() {
