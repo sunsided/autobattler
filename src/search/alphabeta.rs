@@ -1,6 +1,7 @@
 //! The alpha-beta recursion.
 
 use super::ordering::order;
+use super::table::{position_key, Entry, Table};
 use super::SearchKind;
 use crate::action::AppliedAction;
 use crate::conflict::Conflict;
@@ -15,8 +16,14 @@ pub(crate) struct Scored {
     pub score: TerminalState,
     /// Whether [`score`](Scored::score) is exact or a bound due to pruning.
     pub bound: Bound,
-    /// The best line from here, one step per action; empty at a leaf.
+    /// The best line from here, one step per action; empty at a leaf and
+    /// where a stored score was used.
     pub line: Vec<Step>,
+    /// Whether the search below never ran out of depth.
+    pub complete: bool,
+    /// The fewest actions left at which the search below runs into no depth
+    /// limit: one more than the deepest ply it went below.
+    pub reach: usize,
 }
 
 /// One action of a best line.
@@ -56,6 +63,8 @@ pub(crate) struct Searcher {
     pub pv: Vec<usize>,
     /// The kind of search; decides which speedups apply.
     pub kind: SearchKind,
+    /// Positions already searched; used by kinds from [`SearchKind::Tt`] up.
+    pub table: Table,
 }
 
 impl Searcher {
@@ -68,6 +77,7 @@ impl Searcher {
             depth_limited: false,
             pv: Vec::new(),
             kind,
+            table: Table::new(),
         }
     }
 
@@ -121,7 +131,7 @@ impl Searcher {
         // decided position at the horizon still counts as depth limited.
         if ply == depth {
             self.depth_limited = true;
-            return Scored::leaf(get_utility(state));
+            return Scored::horizon(get_utility(state));
         }
         let Some(turn) = state.next_turn() else {
             return Scored::leaf(get_utility(state));
@@ -129,6 +139,27 @@ impl Searcher {
         let actions = moves(state, &turn);
         if actions.is_empty() {
             return Scored::leaf(get_utility(state));
+        }
+
+        let key = (self.kind >= SearchKind::Tt).then(|| position_key(state));
+        let mut stored_best = None;
+        if let Some(entry) = key.and_then(|key| self.table.get(key)) {
+            stored_best = entry.best.filter(|&index| index < actions.len());
+            // The root always searches, so it can report every action it tried.
+            if ply > 0 && Table::usable(entry, depth - ply) {
+                if !entry.complete {
+                    self.depth_limited = true;
+                }
+                match entry.bound {
+                    Bound::Exact => return Scored::stored(entry),
+                    Bound::AtLeast => alpha = alpha.max(entry.score.value()),
+                    Bound::AtMost => beta = beta.min(entry.score.value()),
+                    Bound::Approximate => {}
+                }
+                if alpha >= beta {
+                    return Scored::stored(entry);
+                }
+            }
         }
 
         let is_max = is_maximizing(state, &turn);
@@ -140,6 +171,8 @@ impl Searcher {
         let mut best_bound = Bound::Exact;
         let mut widened = false;
         let mut line = Vec::new();
+        let mut complete = true;
+        let mut reach = 0;
 
         let mut cut = false;
         let first = self
@@ -152,9 +185,11 @@ impl Searcher {
         } else {
             (0..actions.len()).collect()
         };
-        let order = first
-            .into_iter()
-            .chain(rest.into_iter().filter(|&index| Some(index) != first));
+        let stored_best = stored_best.filter(|&index| Some(index) != first);
+        let order = first.into_iter().chain(stored_best).chain(
+            rest.into_iter()
+                .filter(|&index| Some(index) != first && Some(index) != stored_best),
+        );
         for index in order {
             let action = &actions[index];
             if stops(is_max, score, alpha, beta) {
@@ -170,6 +205,8 @@ impl Searcher {
                 (alpha, beta),
             );
             record(index, action, &child);
+            complete &= child.complete;
+            reach = reach.max(child.reach + 1);
 
             let improves = if is_max {
                 child.score.value() > score.value()
@@ -207,21 +244,59 @@ impl Searcher {
             self.cuts += 1;
         }
 
+        let bound = combine_bound(is_max, cut, best_bound, widened);
+        if let Some(key) = key {
+            self.table.put(
+                key,
+                Entry {
+                    depth_left: depth - ply,
+                    score,
+                    bound,
+                    best: line.first().map(|step| step.index),
+                    complete,
+                    reach,
+                },
+            );
+        }
         Scored {
             score,
-            bound: combine_bound(is_max, cut, best_bound, widened),
+            bound,
             line,
+            complete,
+            reach,
         }
     }
 }
 
 impl Scored {
-    /// An exactly scored position the search does not look past.
+    /// A position where the fight is over, scored exactly.
     fn leaf(score: TerminalState) -> Self {
         Self {
             score,
             bound: Bound::Exact,
             line: Vec::new(),
+            complete: true,
+            reach: 1,
+        }
+    }
+
+    /// A position where the depth ran out, scored exactly by its utility.
+    fn horizon(score: TerminalState) -> Self {
+        Self {
+            complete: false,
+            reach: 0,
+            ..Self::leaf(score)
+        }
+    }
+
+    /// A position scored by an earlier search of it.
+    fn stored(entry: &Entry) -> Self {
+        Self {
+            score: entry.score,
+            bound: entry.bound,
+            line: Vec::new(),
+            complete: entry.complete,
+            reach: entry.reach,
         }
     }
 }

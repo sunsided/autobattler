@@ -5,6 +5,7 @@ mod alphabeta;
 mod ordering;
 #[cfg(test)]
 pub mod positions;
+mod table;
 
 use crate::conflict::Conflict;
 use crate::solver::{
@@ -15,6 +16,7 @@ use alphabeta::{RootResult, Searcher};
 use log::trace;
 use std::cmp::Ordering;
 use std::time::{Duration, Instant};
+use table::Table;
 
 /// A search algorithm, from the plain alpha-beta search to the fastest.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -74,7 +76,9 @@ pub struct Search {
 /// evaluations, cuts and duration are summed over all steps; the depth
 /// statistics are those of the last step.
 ///
-/// Every kind searches as [`SearchKind::Basic`] until its speedup lands.
+/// Kinds up to [`SearchKind::Tt`] add their speedups on top of each other;
+/// [`SearchKind::Mtdf`] searches as [`SearchKind::Tt`] until its speedup lands.
+/// The transposition table of [`SearchKind::Tt`] lives for the whole call.
 pub fn engage(conflict: &Conflict, search: Search) -> Outcome {
     let max_depth = search.depth.max(1);
     let mut evaluations = 0;
@@ -82,6 +86,7 @@ pub fn engage(conflict: &Conflict, search: Search) -> Outcome {
     let mut search_duration = Duration::ZERO;
     let mut depth = 1;
     let mut pv = Vec::new();
+    let mut table = Table::new();
     loop {
         trace!("Increase search depth to {depth}/{max_depth}");
         let start = Instant::now();
@@ -89,7 +94,11 @@ pub fn engage(conflict: &Conflict, search: Search) -> Outcome {
         if search.kind >= SearchKind::Pv {
             searcher.pv = std::mem::take(&mut pv);
         }
+        if search.kind >= SearchKind::Tt {
+            searcher.table = std::mem::take(&mut table);
+        }
         let root = searcher.root(conflict, depth, f32::NEG_INFINITY, f32::INFINITY);
+        table = std::mem::take(&mut searcher.table);
         search_duration += start.elapsed();
         evaluations += searcher.evaluations;
         cuts += searcher.cuts;
@@ -304,6 +313,16 @@ mod tests {
                 "{}: ordered disagrees with basic",
                 p.label
             );
+        }
+    }
+
+    #[test]
+    fn tt_agrees_with_basic_on_bench_positions() {
+        let search = |kind| Search { kind, depth: 6 };
+        for p in bench_positions(6) {
+            let basic = engage(&p.conflict, search(SearchKind::Basic));
+            let tt = engage(&p.conflict, search(SearchKind::Tt));
+            assert!(agree(&basic, &tt), "{}: tt disagrees with basic", p.label);
         }
     }
 
