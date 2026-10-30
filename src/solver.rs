@@ -1,4 +1,4 @@
-use crate::action::{AppliedAction, TargetedAction};
+use crate::action::AppliedAction;
 use crate::action_iterator::{ActionIterator, TurnOptions};
 use crate::conflict::{Conflict, Turn};
 use crate::party::{Participant, Party};
@@ -16,7 +16,7 @@ pub struct Solver;
 pub const MAX_ROUNDS: usize = 50;
 
 /// Classifies a value from the initiator's perspective.
-fn outcome_type(value: TerminalState) -> OutcomeType {
+pub(crate) fn outcome_type(value: TerminalState) -> OutcomeType {
     match value {
         TerminalState::Win(score) => OutcomeType::Win(score),
         TerminalState::Defeat(score) => OutcomeType::Lose(score),
@@ -25,6 +25,63 @@ fn outcome_type(value: TerminalState) -> OutcomeType {
         TerminalState::Heuristic(score) => OutcomeType::Unknown(score),
         TerminalState::OpenUnexplored(score) => OutcomeType::Unknown(score),
     }
+}
+
+/// Returns the position after the combatant acting in `turn` takes `action`.
+///
+/// Fleeing and retreating start the parting blows; attacks finish the turn.
+/// The action must be one of the legal [`moves`] of `turn`.
+pub(crate) fn child_state(state: &Conflict, turn: &Turn, action: &AppliedAction) -> Conflict {
+    let actor_is_initiator = is_maximizing(state, turn);
+    let (current, opponent) = Solver::parties_of(state, turn);
+
+    match action {
+        AppliedAction::Flee | AppliedAction::Retreat => {
+            let mut current = current.clone();
+            let fled = if *action == AppliedAction::Flee {
+                let actor = turn.actor.member_id;
+                current.members[actor].fled = true;
+                vec![actor]
+            } else {
+                current.retreat()
+            };
+
+            let mut child =
+                Solver::rebuild_state(state, actor_is_initiator, current, opponent.clone());
+            child.start_parting(turn, turn.actor.party_id, fled);
+            child
+        }
+        AppliedAction::Targeted(targeted) => {
+            debug_assert_eq!(targeted.source, turn.actor);
+            debug_assert_eq!(targeted.target.party_id, opponent.id);
+
+            // Targets are always on the field, so the attack always applies.
+            let mut target = opponent.members[targeted.target.member_id].clone();
+            let applied = target.handle_action(&targeted.action);
+            debug_assert!(applied);
+
+            let mut opponent = opponent.clone();
+            opponent.replace_member(target);
+
+            let mut child =
+                Solver::rebuild_state(state, actor_is_initiator, current.clone(), opponent);
+            child.finish_turn(turn);
+            child
+        }
+    }
+}
+
+/// The legal moves of the combatant acting in `turn`, in the fixed [`ActionIterator`] order.
+///
+/// Only the recursive engine needs this; until it lands, tests are the sole caller.
+#[allow(dead_code)]
+pub(crate) fn moves(state: &Conflict, turn: &Turn) -> Vec<AppliedAction> {
+    Solver::actions_for(state, turn).collect()
+}
+
+/// Whether the combatant acting in `turn` plays for the initiator, who maximizes.
+pub(crate) fn is_maximizing(state: &Conflict, turn: &Turn) -> bool {
+    turn.actor.party_id == state.initiator.id
 }
 
 /// The strategy to use with the solver.
@@ -274,96 +331,18 @@ impl Solver {
             node.action_iter = Some(Self::actions_for(&node.state, &turn));
         }
 
-        // Select the party of the acting combatant and the opponent.
-        let actor_is_initiator = turn.actor.party_id == node.state.initiator.id;
-        debug_assert_eq!(actor_is_initiator, node.is_maximizing);
-        let (current, opponent) = Self::parties_of(&node.state, &turn);
-
-        let source_party_id = current.id;
+        // Select the party of the acting combatant.
+        debug_assert_eq!(is_maximizing(&node.state, &turn), node.is_maximizing);
 
         if let Some(action) = node.action_iter.as_mut().and_then(|i| i.next()) {
-            match action {
-                AppliedAction::Flee | AppliedAction::Retreat => {
-                    let mut current = current.clone();
-                    let fled = if action == AppliedAction::Flee {
-                        let actor = turn.actor.member_id;
-                        current.members[actor].fled = true;
-                        vec![actor]
-                    } else {
-                        current.retreat()
-                    };
+            let state = child_state(&node.state, &turn, &action);
+            let child_node = Node::new_branch_from(next_child_id, &node, turn, action, state);
 
-                    // Create a new branch on the board.
-                    let mut state = Self::rebuild_state(
-                        &node.state,
-                        actor_is_initiator,
-                        current,
-                        opponent.clone(),
-                    );
-                    state.start_parting(&turn, source_party_id, fled);
-
-                    let child_node =
-                        Node::new_branch_from(next_child_id, &node, turn, action, state);
-
-                    if let Some(action) = &child_node.action {
-                        log_expand_node_with_action(&node, &child_node, action);
-                    }
-
-                    return ExpansionResult::new_expansion(node, child_node);
-                }
-                AppliedAction::Targeted(action) => {
-                    let source_id = action.source.member_id;
-                    debug_assert_eq!(action.source.party_id, source_party_id);
-                    debug_assert_eq!(action.source, turn.actor);
-
-                    let target_party_id = action.target.party_id;
-                    debug_assert_eq!(action.target.party_id, opponent.id);
-
-                    let target_id = action.target.member_id;
-                    let target = &opponent.members[action.target.member_id];
-
-                    let action = &action.action;
-
-                    // TODO: Optimize state creation - only clone when action was applied.
-                    let mut target = target.clone();
-                    if target.handle_action(action) {
-                        // Branch off and replace the member with the updated state.
-                        let mut opponent = opponent.clone();
-                        opponent.replace_member(target);
-
-                        // Create a new branch on the board.
-                        let mut state = Self::rebuild_state(
-                            &node.state,
-                            actor_is_initiator,
-                            current.clone(),
-                            opponent,
-                        );
-                        state.finish_turn(&turn);
-
-                        // The action to apply.
-                        let action = AppliedAction::Targeted(TargetedAction {
-                            action: action.clone(),
-                            source: Participant {
-                                party_id: source_party_id,
-                                member_id: source_id,
-                            },
-                            target: Participant {
-                                party_id: target_party_id,
-                                member_id: target_id,
-                            },
-                        });
-
-                        let child_node =
-                            Node::new_branch_from(next_child_id, &node, turn, action, state);
-
-                        if let Some(action) = &child_node.action {
-                            log_expand_node_with_action(&node, &child_node, action);
-                        }
-
-                        return ExpansionResult::new_expansion(node, child_node);
-                    }
-                }
+            if let Some(action) = &child_node.action {
+                log_expand_node_with_action(&node, &child_node, action);
             }
+
+            return ExpansionResult::new_expansion(node, child_node);
         }
 
         ExpansionResult::new_exhaustion(node)
@@ -963,10 +942,49 @@ fn log_finish_iddfs(depth: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::action::Action;
+    use crate::action::{Action, TargetedAction};
     use crate::action_iterator::TurnOptions;
     use crate::party_member::{Morale, PartyMember};
+    use crate::roster::Roster;
+    use crate::scenario::{self, Preset, Setup};
     use crate::weapon::{Fists, Stick, Weapon};
+
+    #[test]
+    fn child_state_matches_minimax_expand() {
+        let fight = scenario::build(Setup::Preset(Preset::Ambush), Roster::Random, 7);
+        let root = fight.conflict;
+        let turn = root.next_turn().expect("the fight has begun");
+        let all_moves = moves(&root, &turn);
+        assert!(!all_moves.is_empty());
+
+        let mut node = Node::new_root(root.clone(), 0);
+        for (index, action) in all_moves.iter().enumerate() {
+            let ExpansionResult::Expanded(Expansion { parent, child }) =
+                Solver::minimax_expand(node, index + 1)
+            else {
+                panic!("move {index} should expand");
+            };
+            node = parent;
+
+            assert_eq!(child.action.as_ref(), Some(action));
+            let expected = child.state;
+            let actual = child_state(&root, &turn, action);
+
+            assert_eq!(actual.round, expected.round);
+            assert_eq!(actual.slot, expected.slot);
+            assert_eq!(actual.parting, expected.parting);
+            for (a, e) in [
+                (&actual.initiator, &expected.initiator),
+                (&actual.opponent, &expected.opponent),
+            ] {
+                assert_eq!(a.members.len(), e.members.len());
+                for (a, e) in a.members.iter().zip(&e.members) {
+                    assert_eq!(a.health, e.health);
+                    assert_eq!(a.fled, e.fled);
+                }
+            }
+        }
+    }
 
     #[test]
     fn simple_fight_works() {
