@@ -361,6 +361,40 @@ mod tests {
     }
 
     #[test]
+    fn mtdf_fallback_agrees_with_basic() {
+        let outcome = |conflict: &Conflict, root: RootResult| Outcome {
+            outcome: outcome_type(root.scored.score),
+            timeline: timeline(conflict, root),
+            evaluations: 0,
+            cuts: 0,
+            search_duration: Duration::ZERO,
+            max_visited_depth: 0,
+            depth_limited: false,
+        };
+        let mut fell_back = Vec::new();
+        for p in bench_positions(6) {
+            let mut searcher = Searcher::new(SearchKind::Mtdf);
+            let mtdf = mtdf(&mut searcher, &p.conflict, 6, 0.0);
+            if searcher.fallbacks == 0 {
+                continue;
+            }
+            let basic = Searcher::new(SearchKind::Basic).root(
+                &p.conflict,
+                6,
+                f32::NEG_INFINITY,
+                f32::INFINITY,
+            );
+            let (basic, mtdf) = (outcome(&p.conflict, basic), outcome(&p.conflict, mtdf));
+            assert!(agree(&basic, &mtdf), "{}: fallback disagrees", p.label);
+            let turn = p.conflict.next_turn().expect("a search ran");
+            fell_back.push(is_maximizing(&p.conflict, &turn));
+        }
+        // Covers a root with the hero to move and one with a villain to move.
+        assert!(fell_back.contains(&true), "no maximizing root fell back");
+        assert!(fell_back.contains(&false), "no minimizing root fell back");
+    }
+
+    #[test]
     fn mtdf_converges_on_a_known_score() {
         // The setup of the solver's simple fight: the faster hero wins with 5 health.
         let member = |id, health, weapon, speed| PartyMember {

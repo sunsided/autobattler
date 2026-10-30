@@ -2,6 +2,7 @@
 
 use super::alphabeta::{RootResult, Searcher};
 use crate::conflict::Conflict;
+use crate::solver::is_maximizing;
 use crate::value::Bound;
 
 /// The most null-window searches per call.
@@ -16,36 +17,65 @@ const WIDTH: f32 = 1e-3;
 ///
 /// Each search proves the root score lies at or below or at or above what
 /// it returns, which lowers the upper or raises the lower bound. The
-/// searcher's table carries what each search learned into the next. The
-/// result is that of the last search, so its scores are mostly bounds. When
-/// a search proves nothing new, which the villain-defeat shortcut can cause,
-/// one full-window search on the warm table gives the result instead.
+/// searcher's table carries what each search learned into the next.
+///
+/// The result is that of the last search that proved the score from the
+/// mover's side, the only kind whose chosen action is known to reach it; its
+/// scores are mostly bounds. When there is none, when a search proves
+/// nothing new (which the villain-defeat shortcut can cause) or when the
+/// passes run out, one full-window search on the warm table gives the result.
 pub(crate) fn mtdf(
     searcher: &mut Searcher,
     state: &Conflict,
     depth: usize,
     guess: f32,
 ) -> RootResult {
+    let is_max = state
+        .next_turn()
+        .is_none_or(|turn| is_maximizing(state, &turn));
     let mut lower = f32::NEG_INFINITY;
     let mut upper = f32::INFINITY;
     let mut g = guess;
-    let mut passes = 0;
-    loop {
+    let mut proved = None;
+    for _ in 0..MAX_PASSES {
         let beta = if g == lower { g + WIDTH } else { g };
         let root = searcher.root(state, depth, beta - WIDTH, beta);
-        passes += 1;
         #[cfg(test)]
         {
             searcher.passes += 1;
         }
         g = root.scored.score.value();
-        let Some(bounds) = narrow((lower, upper), g, root.scored.bound) else {
-            return searcher.root(state, depth, f32::NEG_INFINITY, f32::INFINITY);
+        let bound = root.scored.bound;
+        let Some(bounds) = narrow((lower, upper), g, bound) else {
+            break;
         };
         (lower, upper) = bounds;
-        if upper - lower <= WIDTH || passes >= MAX_PASSES {
-            return root;
+        if proves_for_mover(is_max, bound) {
+            proved = Some(root);
         }
+        if upper - lower <= WIDTH {
+            if let Some(root) = proved {
+                return root;
+            }
+            break;
+        }
+    }
+    #[cfg(test)]
+    {
+        searcher.fallbacks += 1;
+    }
+    searcher.root(state, depth, f32::NEG_INFINITY, f32::INFINITY)
+}
+
+/// Whether a root search that returned `bound` proved its score from the
+/// side of the mover, so its chosen action reaches at least that score for
+/// a maximizer, or at most that score for a minimizer.
+fn proves_for_mover(is_max: bool, bound: Bound) -> bool {
+    match bound {
+        Bound::Exact => true,
+        Bound::AtLeast => is_max,
+        Bound::AtMost => !is_max,
+        Bound::Approximate => false,
     }
 }
 
@@ -86,6 +116,28 @@ mod tests {
                 narrow(bounds, g, bound),
                 expected,
                 "{bounds:?} {g} {bound:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn only_bounds_from_the_movers_side_prove_the_move() {
+        use Bound::*;
+        let table = [
+            (true, Exact, true),
+            (true, AtLeast, true),
+            (true, AtMost, false),
+            (true, Approximate, false),
+            (false, Exact, true),
+            (false, AtLeast, false),
+            (false, AtMost, true),
+            (false, Approximate, false),
+        ];
+        for (is_max, bound, expected) in table {
+            assert_eq!(
+                proves_for_mover(is_max, bound),
+                expected,
+                "{is_max} {bound:?}"
             );
         }
     }

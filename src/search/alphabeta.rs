@@ -68,6 +68,9 @@ pub(crate) struct Searcher {
     /// The number of null-window searches run by [`mtdf`](super::mtdf::mtdf).
     #[cfg(test)]
     pub passes: usize,
+    /// The number of full-window searches [`mtdf`](super::mtdf::mtdf) fell back to.
+    #[cfg(test)]
+    pub fallbacks: usize,
 }
 
 impl Searcher {
@@ -83,6 +86,8 @@ impl Searcher {
             table: Table::new(),
             #[cfg(test)]
             passes: 0,
+            #[cfg(test)]
+            fallbacks: 0,
         }
     }
 
