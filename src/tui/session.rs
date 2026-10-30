@@ -7,7 +7,8 @@ use crate::conflict::Conflict;
 use crate::narration::{Beat, NarrationOptions, Narrator};
 use crate::roster::Roster;
 use crate::scenario::{self, Fight, Setup};
-use crate::solver::{Outcome, Solver, SolverStrategy, MAX_ROUNDS};
+use crate::search::{self, Search};
+use crate::solver::{Outcome, MAX_ROUNDS};
 use crate::tui::app::{App, Key};
 use crate::tui::menu::{draw_menu, Menu, MenuKey};
 use crate::tui::view::{draw, draw_lineup, FightView, LineupView};
@@ -46,7 +47,7 @@ pub struct Job {
     pub conflict: Conflict,
     pub names: Vec<Vec<String>>,
     pub seed: u64,
-    pub depth: usize,
+    pub search: Search,
 }
 
 /// What solving a [`Job`] produces.
@@ -65,14 +66,10 @@ pub struct Solved {
     pub seed: u64,
 }
 
-/// Solves with `Solver::play(IterativeDeepening(depth), MAX_ROUNDS)`, then narrates
+/// Solves with `search::play(search, MAX_ROUNDS)`, then narrates
 /// with `explain: true` and `seed: Some(seed)`.
-pub fn solve(conflict: &Conflict, names: &[Vec<String>], seed: u64, depth: usize) -> Solution {
-    let outcome = Solver::play(
-        conflict,
-        SolverStrategy::IterativeDeepening(depth),
-        MAX_ROUNDS,
-    );
+pub fn solve(conflict: &Conflict, names: &[Vec<String>], seed: u64, search: Search) -> Solution {
+    let outcome = search::play(conflict, search, MAX_ROUNDS);
     let options = NarrationOptions {
         explain: true,
         seed: Some(seed),
@@ -103,7 +100,7 @@ enum Screen {
 /// The menu, the lineup and the fight, and which of them is showing.
 pub struct Session {
     menu: Menu,
-    depth: usize,
+    search: Search,
     explain: bool,
     generation: u64,
     screen: Screen,
@@ -117,10 +114,10 @@ pub struct Session {
 
 impl Session {
     /// Starts on `menu`; `explain` seeds the tactician toggle of the first fight.
-    pub fn new(menu: Menu, depth: usize, explain: bool) -> Self {
+    pub fn new(menu: Menu, search: Search, explain: bool) -> Self {
         Self {
             menu,
-            depth,
+            search,
             explain,
             generation: 0,
             screen: Screen::Menu,
@@ -221,7 +218,7 @@ impl Session {
                 conflict: conflict.clone(),
                 names: names.clone(),
                 seed,
-                depth: self.depth,
+                search: self.search,
             });
             self.generation
         };
@@ -402,17 +399,25 @@ mod tests {
     use super::*;
     use crate::roster::Roster;
     use crate::scenario::{Preset, Setup};
+    use crate::search::SearchKind;
     use crate::tui::view::render_with;
+
+    fn search() -> Search {
+        Search {
+            kind: SearchKind::Basic,
+            depth: 6,
+        }
+    }
 
     fn session() -> Session {
         let menu = Menu::new(Setup::Preset(Preset::Ambush), Roster::Random, 7);
-        Session::new(menu, 6, false)
+        Session::new(menu, search(), false)
     }
 
     fn solution() -> Solution {
         let Fight { conflict, names } =
             scenario::build(Setup::Preset(Preset::Ambush), Roster::Random, 7);
-        solve(&conflict, &names, 7, 6)
+        solve(&conflict, &names, 7, search())
     }
 
     fn job(session: &mut Session) -> Job {
@@ -433,7 +438,7 @@ mod tests {
         let mut s = session();
         let job = job(&mut s);
         assert_eq!(s.screen(), ScreenKind::Lineup);
-        assert_eq!((job.seed, job.depth), (7, 6));
+        assert_eq!((job.seed, job.search), (7, search()));
         assert_eq!(job.names.len(), 2);
     }
 

@@ -9,6 +9,7 @@ use crate::conflict::Conflict;
 use crate::narration::panel::{filled_cells, morale_tag};
 use crate::narration::{log_lines, Beat, BeatKind};
 use crate::party::{Participant, Party};
+use crate::search::SearchKind;
 use crate::solver::{Event, Outcome, OutcomeType};
 use crate::tui::app::App;
 use crate::weapon::Weapon;
@@ -154,6 +155,7 @@ pub fn draw_lineup(frame: &mut Frame, lineup: &LineupView, ready: bool) {
         search_duration: Duration::ZERO,
         max_visited_depth: 0,
         depth_limited: false,
+        search: SearchKind::Basic,
     };
     let fight = FightView {
         start: lineup.start,

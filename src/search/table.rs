@@ -144,6 +144,7 @@ impl Table {
     }
 
     /// The number of entries.
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.entries.len()
     }

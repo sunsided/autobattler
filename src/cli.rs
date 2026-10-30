@@ -2,6 +2,7 @@
 
 use crate::roster::Roster;
 use crate::scenario::{Preset, Setup};
+use crate::search::SearchKind;
 
 /// The largest party `--heroes` and `--villains` accept.
 pub const MAX_PARTY: usize = 4;
@@ -25,6 +26,8 @@ pub struct Options {
     pub seed: Option<u64>,
     /// The search depth in combatant actions.
     pub depth: usize,
+    /// Which search finds the moves.
+    pub search: SearchKind,
 }
 
 impl Default for Options {
@@ -37,6 +40,7 @@ impl Default for Options {
             roster: None,
             seed: None,
             depth: 10,
+            search: SearchKind::Basic,
         }
     }
 }
@@ -63,6 +67,7 @@ Options:
   --roster KIND          random (default) or archetypes; for generated parties
   --seed N               seed for stats and names; default: from the clock
   --depth N              search depth in actions (1-40, default 10; slow above ~16)
+  --search KIND          search: basic, pv, ordered, tt, mtdf (default basic)
   --list-scenarios       list the presets
   --fast                 print the whole text log at once (no TUI, no pauses)
   --no-explain           leave out the tactician notes
@@ -132,6 +137,13 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, String>
                     .map_err(|_| format!("invalid value for --seed: {text}"))
             }),
             "--depth" => number(&flag, value(), 1, MAX_DEPTH).map(|n| options.depth = n),
+            "--search" => required(&flag, value()).and_then(|name| {
+                SearchKind::from_name(&name)
+                    .map(|kind| options.search = kind)
+                    .ok_or_else(|| {
+                        format!("--search must be one of basic, pv, ordered, tt, mtdf, got {name}")
+                    })
+            }),
             _ => Err(format!("unknown option: {arg}")),
         };
         if let Err(message) = result {
@@ -379,6 +391,21 @@ mod tests {
         assert_eq!(
             error(&["--depth", "41"]),
             "--depth must be a number from 1 to 40, got 41"
+        );
+    }
+
+    #[test]
+    fn search() {
+        assert_eq!(run(&[]).search, SearchKind::Basic);
+        assert_eq!(run(&["--search", "tt"]).search, SearchKind::Tt);
+        assert_eq!(run(&["--search=mtdf"]).search, SearchKind::Mtdf);
+    }
+
+    #[test]
+    fn search_rejects_unknown() {
+        assert_eq!(
+            error(&["--search", "fast"]),
+            "--search must be one of basic, pv, ordered, tt, mtdf, got fast"
         );
     }
 

@@ -144,6 +144,9 @@ Every task takes extra flags after `--`, e.g. `task run:brawl -- --seed 42 --fas
 - `--plain` prints the text combat log instead of opening the TUI (`--fast` does too, and so does piping).
 - `--seed N` replays a fight; `--depth N` sets how many actions ahead the tactician looks (1–40,
   default 10). Large fights get slow above about 16.
+- `--search KIND` picks how the tactician searches: `basic`, `pv`, `ordered`, `tt` or `mtdf` (default
+  `basic`). Each kind adds a speedup to the one before and plays the same fight; the stats line
+  names the kind used.
 
 Every combatant searches anew on their turn, so a fight plays on until one side wins or escapes,
 however far that is beyond the lookahead. After 50 rounds it is called undecided.

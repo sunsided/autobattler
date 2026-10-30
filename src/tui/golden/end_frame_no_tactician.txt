@@ -13,7 +13,7 @@ Brull(6) ▸ Molphige(5)
 │Ziuon flees!                                                                  │
 │Parting blow: Brull jabs Ziuon — 10 damage.                                   │
 │🏁 Ziuon fled; Brull holds the field after 1 round.                           │
-│(seed 7, 221 evaluations, 44 cuts, depth 8, 1.5ms)                            │
+│(seed 7, 221 evaluations, 44 cuts, depth 8, search basic, 1.5ms)              │
 │                                                                              │
 │                                                                              │
 │                                                                              │

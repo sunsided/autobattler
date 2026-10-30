@@ -5,6 +5,7 @@ pub mod menu;
 pub mod session;
 pub mod view;
 
+use crate::search::Search;
 use menu::Menu;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::crossterm::terminal::{
@@ -68,7 +69,7 @@ pub enum TuiError {
 /// Runs the menu, lineup and fight screens until the user quits.
 ///
 /// Returns the last fight seen, if any, even when the terminal failed later.
-pub fn run(menu: Menu, depth: usize, explain: bool) -> (Option<Solved>, Result<(), TuiError>) {
+pub fn run(menu: Menu, search: Search, explain: bool) -> (Option<Solved>, Result<(), TuiError>) {
     let previous = std::panic::take_hook();
     let main_thread = std::thread::current().id();
     std::panic::set_hook(Box::new(move |info| {
@@ -83,7 +84,7 @@ pub fn run(menu: Menu, depth: usize, explain: bool) -> (Option<Solved>, Result<(
         Ok(parts) => parts,
         Err(error) => return (None, Err(TuiError::Setup(error))),
     };
-    let mut session = Session::new(menu, depth, explain);
+    let mut session = Session::new(menu, search, explain);
     let result = play(&mut terminal, &mut session).map_err(TuiError::Terminal);
     (session.into_last(), result)
 }
@@ -117,7 +118,7 @@ fn play(
                             let tx = tx.clone();
                             std::thread::spawn(move || {
                                 let solution =
-                                    solve(&job.conflict, &job.names, job.seed, job.depth);
+                                    solve(&job.conflict, &job.names, job.seed, job.search);
                                 let _ = tx.send((job.generation, solution));
                             });
                         }

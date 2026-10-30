@@ -152,13 +152,14 @@ impl<'a> Narrator<'a> {
         beats.push(Beat {
             kind: BeatKind::Stats,
             lines: vec![format!(
-                "({}{} evaluations, {} cuts, depth {}, {:?})",
+                "({}{} evaluations, {} cuts, depth {}, search {}, {:?})",
                 self.options
                     .seed
                     .map_or(String::new(), |seed| format!("seed {seed}, ")),
                 outcome.evaluations,
                 outcome.cuts,
                 outcome.max_visited_depth,
+                outcome.search.name(),
                 outcome.search_duration
             )],
             event: None,
@@ -420,6 +421,7 @@ mod tests {
         };
         assert!(stats(Some(42)).starts_with("(seed 42, "));
         assert!(stats(None).starts_with("(") && !stats(None).contains("seed"));
+        assert!(stats(None).contains(", search basic, "));
     }
 
     #[test]

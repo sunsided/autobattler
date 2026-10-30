@@ -3,7 +3,8 @@ use crate::narration::playback::play;
 use crate::narration::{BeatKind, NarrationOptions, Narrator};
 use crate::roster::Roster;
 use crate::scenario::{Fight, Preset};
-use crate::solver::{Solver, SolverStrategy, MAX_ROUNDS};
+use crate::search::Search;
+use crate::solver::MAX_ROUNDS;
 use crate::tui::menu::Menu;
 use crate::tui::TuiError;
 use std::io::{stdout, IsTerminal};
@@ -20,12 +21,14 @@ mod party_member;
 mod rng;
 mod roster;
 mod scenario;
-// The engine replaces the solver in a later step; until then only tests use it.
-#[cfg_attr(not(test), allow(dead_code))]
 mod search;
+// The old engine only serves tests until it is removed.
+#[cfg_attr(not(test), allow(dead_code))]
 mod solver;
 mod tui;
 mod utility_value;
+// The old engine's value bookkeeping goes with it.
+#[cfg_attr(not(test), allow(dead_code))]
 mod value;
 mod weapon;
 
@@ -52,12 +55,16 @@ fn main() -> ExitCode {
 
     let seed = options.seed.unwrap_or_else(clock_seed);
     let roster = options.roster.unwrap_or(Roster::Random);
+    let search = Search {
+        kind: options.search,
+        depth: options.depth,
+    };
     let mode = cli::ui_mode(options.plain, options.fast, stdout().is_terminal());
     if mode == UiMode::Tui {
         // The TUI draws its own colors; keep escape codes out of the beats.
         colored::control::set_override(false);
         let menu = Menu::new(options.setup, roster, seed);
-        let (last, result) = tui::run(menu, options.depth, options.explain);
+        let (last, result) = tui::run(menu, search, options.explain);
         // Leaving the alternate screen clears the fight; print the result,
         // seed included, so it stays in the scrollback.
         let print_result = || {
@@ -96,8 +103,7 @@ fn main() -> ExitCode {
     }
 
     let Fight { conflict, names } = scenario::build(options.setup, roster, seed);
-    let strategy = SolverStrategy::IterativeDeepening(options.depth);
-    let outcome = Solver::play(&conflict, strategy, MAX_ROUNDS);
+    let outcome = search::play(&conflict, search, MAX_ROUNDS);
     let narration = NarrationOptions {
         explain: options.explain,
         seed: Some(seed),

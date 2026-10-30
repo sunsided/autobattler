@@ -55,6 +55,7 @@ mod tests {
     use super::*;
     use crate::conflict::Conflict;
     use crate::party::Party;
+    use crate::search::SearchKind;
     use crate::solver::Event;
     use crate::value::TerminalState;
     use std::time::Duration;
@@ -68,6 +69,7 @@ mod tests {
             search_duration: Duration::ZERO,
             max_visited_depth: 0,
             depth_limited: false,
+            search: SearchKind::Basic,
         }
     }
 

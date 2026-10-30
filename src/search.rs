@@ -1,5 +1,7 @@
 //! A recursive alpha-beta search, in kinds that add speedups on top of each other.
 
+// Only tests compare outcomes until the bench uses it.
+#[cfg_attr(not(test), allow(dead_code))]
 mod agreement;
 mod alphabeta;
 mod mtdf;
@@ -128,6 +130,7 @@ pub fn engage(conflict: &Conflict, search: Search) -> Outcome {
                 search_duration,
                 max_visited_depth: searcher.max_visited_depth,
                 depth_limited: searcher.depth_limited,
+                search: search.kind,
             };
         }
         pv = root.scored.line.iter().map(|step| step.index).collect();
@@ -177,6 +180,7 @@ pub fn play(conflict: &Conflict, search: Search, max_rounds: usize) -> Outcome {
         search_duration,
         max_visited_depth,
         depth_limited,
+        search: search.kind,
     }
 }
 
@@ -370,6 +374,7 @@ mod tests {
             search_duration: Duration::ZERO,
             max_visited_depth: 0,
             depth_limited: false,
+            search: SearchKind::Basic,
         };
         let mut fell_back = Vec::new();
         for p in bench_positions(6) {

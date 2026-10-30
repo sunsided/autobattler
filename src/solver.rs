@@ -3,6 +3,7 @@ use crate::action_iterator::{ActionIterator, TurnOptions};
 use crate::conflict::{Conflict, Turn};
 use crate::party::{Participant, Party};
 use crate::party_member::Morale;
+use crate::search::SearchKind;
 use crate::utility_value::get_utility;
 use crate::value::{combine_bound, Bound, Cutoff, TerminalState, Value};
 use log::trace;
@@ -177,6 +178,7 @@ impl Solver {
             search_duration,
             max_visited_depth,
             depth_limited,
+            search: SearchKind::Basic,
         }
     }
 
@@ -520,6 +522,7 @@ impl Solver {
             max_visited_depth,
             search_duration,
             depth_limited,
+            search: SearchKind::Basic,
         }
     }
 
@@ -589,6 +592,8 @@ pub struct Outcome {
     pub max_visited_depth: usize,
     /// `true` if the search was depth limited and has more nodes to explore.
     pub depth_limited: bool,
+    /// The search that found the outcome.
+    pub search: SearchKind,
 }
 
 impl Outcome {
