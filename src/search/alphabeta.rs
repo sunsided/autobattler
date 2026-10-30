@@ -49,6 +49,9 @@ pub(crate) struct Searcher {
     pub max_visited_depth: usize,
     /// Whether any position was scored because the depth ran out.
     pub depth_limited: bool,
+    /// The previous step's root line, as action indices; its action is tried
+    /// first at each ply while the search stays on it.
+    pub pv: Vec<usize>,
 }
 
 impl Searcher {
@@ -56,9 +59,14 @@ impl Searcher {
     /// recording every action tried at the root.
     pub fn root(&mut self, state: &Conflict, depth: usize, alpha: f32, beta: f32) -> RootResult {
         let mut explored = Vec::new();
-        let scored = self.search(state, 0, depth, alpha, beta, |index, action, child| {
-            explored.push((index, action.clone(), child.clone()))
-        });
+        let scored = self.search(
+            state,
+            0,
+            true,
+            depth,
+            (alpha, beta),
+            |index, action, child| explored.push((index, action.clone(), child.clone())),
+        );
         RootResult {
             best: scored.line.first().map(|step| step.index),
             explored,
@@ -71,22 +79,23 @@ impl Searcher {
         &mut self,
         state: &Conflict,
         ply: usize,
+        on_pv: bool,
         depth: usize,
-        alpha: f32,
-        beta: f32,
+        window: (f32, f32),
     ) -> Scored {
-        self.search(state, ply, depth, alpha, beta, |_, _, _| {})
+        self.search(state, ply, on_pv, depth, window, |_, _, _| {})
     }
 
-    /// The alpha-beta step shared by the root and every other node; `record`
+    /// The alpha-beta step shared by the root and every other node; `on_pv`
+    /// tells whether the actions so far follow [`pv`](Searcher::pv), and `record`
     /// sees each child as soon as it is searched.
     fn search(
         &mut self,
         state: &Conflict,
         ply: usize,
+        on_pv: bool,
         depth: usize,
-        mut alpha: f32,
-        mut beta: f32,
+        (mut alpha, mut beta): (f32, f32),
         mut record: impl FnMut(usize, &AppliedAction, &Scored),
     ) -> Scored {
         self.evaluations += 1;
@@ -117,7 +126,16 @@ impl Searcher {
         let mut line = Vec::new();
 
         let mut cut = false;
-        for (index, action) in actions.iter().enumerate() {
+        let first = self
+            .pv
+            .get(ply)
+            .copied()
+            .filter(|&index| on_pv && index < actions.len());
+        let order = first
+            .into_iter()
+            .chain((0..actions.len()).filter(|&index| Some(index) != first));
+        for index in order {
+            let action = &actions[index];
             if stops(is_max, score, alpha, beta) {
                 cut = true;
                 break;
@@ -126,9 +144,9 @@ impl Searcher {
             let child = self.node(
                 &child_state(state, &turn, action),
                 ply + 1,
+                first == Some(index),
                 depth,
-                alpha,
-                beta,
+                (alpha, beta),
             );
             record(index, action, &child);
 

@@ -1,5 +1,6 @@
 //! A recursive alpha-beta search, in kinds that add speedups on top of each other.
 
+mod agreement;
 mod alphabeta;
 #[cfg(test)]
 pub mod positions;
@@ -15,7 +16,7 @@ use std::cmp::Ordering;
 use std::time::{Duration, Instant};
 
 /// A search algorithm, from the plain alpha-beta search to the fastest.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SearchKind {
     /// Alpha-beta search with moves in their fixed order.
     Basic,
@@ -79,10 +80,14 @@ pub fn engage(conflict: &Conflict, search: Search) -> Outcome {
     let mut cuts = 0;
     let mut search_duration = Duration::ZERO;
     let mut depth = 1;
+    let mut pv = Vec::new();
     loop {
         trace!("Increase search depth to {depth}/{max_depth}");
         let start = Instant::now();
         let mut searcher = Searcher::default();
+        if search.kind >= SearchKind::Pv {
+            searcher.pv = std::mem::take(&mut pv);
+        }
         let root = searcher.root(conflict, depth, f32::NEG_INFINITY, f32::INFINITY);
         search_duration += start.elapsed();
         evaluations += searcher.evaluations;
@@ -101,6 +106,7 @@ pub fn engage(conflict: &Conflict, search: Search) -> Outcome {
                 depth_limited: searcher.depth_limited,
             };
         }
+        pv = root.scored.line.iter().map(|step| step.index).collect();
         depth += 1;
     }
 }
@@ -207,6 +213,7 @@ fn timeline(conflict: &Conflict, root: RootResult) -> Vec<Event> {
 
 #[cfg(test)]
 mod tests {
+    use super::agreement::agree;
     use super::positions::bench_positions;
     use super::*;
     use crate::roster::Roster;
@@ -272,6 +279,16 @@ mod tests {
                     .collect::<Vec<_>>()
             };
             assert_eq!(alternatives(b), alternatives(l), "{label}: alternatives");
+        }
+    }
+
+    #[test]
+    fn pv_agrees_with_basic_on_bench_positions() {
+        let search = |kind| Search { kind, depth: 6 };
+        for p in bench_positions(6) {
+            let basic = engage(&p.conflict, search(SearchKind::Basic));
+            let pv = engage(&p.conflict, search(SearchKind::Pv));
+            assert!(agree(&basic, &pv), "{}: pv disagrees with basic", p.label);
         }
     }
 
