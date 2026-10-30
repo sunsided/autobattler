@@ -2,6 +2,7 @@
 
 mod agreement;
 mod alphabeta;
+mod mtdf;
 mod ordering;
 #[cfg(test)]
 pub mod positions;
@@ -14,6 +15,7 @@ use crate::solver::{
 use crate::utility_value::get_utility;
 use alphabeta::{RootResult, Searcher};
 use log::trace;
+use mtdf::mtdf;
 use std::cmp::Ordering;
 use std::time::{Duration, Instant};
 use table::Table;
@@ -76,9 +78,11 @@ pub struct Search {
 /// evaluations, cuts and duration are summed over all steps; the depth
 /// statistics are those of the last step.
 ///
-/// Kinds up to [`SearchKind::Tt`] add their speedups on top of each other;
-/// [`SearchKind::Mtdf`] searches as [`SearchKind::Tt`] until its speedup lands.
-/// The transposition table of [`SearchKind::Tt`] lives for the whole call.
+/// Each kind adds its speedup on top of the ones before. The transposition
+/// table of [`SearchKind::Tt`] lives for the whole call. [`SearchKind::Mtdf`]
+/// guesses each step's score from the previous step's (0 for the first); its
+/// best line comes from a null-window search, so its timeline holds only the
+/// first event.
 pub fn engage(conflict: &Conflict, search: Search) -> Outcome {
     let max_depth = search.depth.max(1);
     let mut evaluations = 0;
@@ -87,6 +91,7 @@ pub fn engage(conflict: &Conflict, search: Search) -> Outcome {
     let mut depth = 1;
     let mut pv = Vec::new();
     let mut table = Table::new();
+    let mut guess = 0.0;
     loop {
         trace!("Increase search depth to {depth}/{max_depth}");
         let start = Instant::now();
@@ -97,7 +102,11 @@ pub fn engage(conflict: &Conflict, search: Search) -> Outcome {
         if search.kind >= SearchKind::Tt {
             searcher.table = std::mem::take(&mut table);
         }
-        let root = searcher.root(conflict, depth, f32::NEG_INFINITY, f32::INFINITY);
+        let root = if search.kind == SearchKind::Mtdf {
+            mtdf(&mut searcher, conflict, depth, guess)
+        } else {
+            searcher.root(conflict, depth, f32::NEG_INFINITY, f32::INFINITY)
+        };
         table = std::mem::take(&mut searcher.table);
         search_duration += start.elapsed();
         evaluations += searcher.evaluations;
@@ -106,9 +115,14 @@ pub fn engage(conflict: &Conflict, search: Search) -> Outcome {
         let won = matches!(outcome_type(root.scored.score), OutcomeType::Win(_));
         if won || !searcher.depth_limited || depth >= max_depth {
             trace!("Iterative deepening finished at depth {depth}");
+            let outcome = outcome_type(root.scored.score);
+            let mut timeline = timeline(conflict, root);
+            if search.kind == SearchKind::Mtdf {
+                timeline.truncate(1);
+            }
             return Outcome {
-                outcome: outcome_type(root.scored.score),
-                timeline: timeline(conflict, root),
+                outcome,
+                timeline,
                 evaluations,
                 cuts,
                 search_duration,
@@ -117,6 +131,7 @@ pub fn engage(conflict: &Conflict, search: Search) -> Outcome {
             };
         }
         pv = root.scored.line.iter().map(|step| step.index).collect();
+        guess = root.scored.score.value();
         depth += 1;
     }
 }
@@ -226,10 +241,13 @@ mod tests {
     use super::agreement::agree;
     use super::positions::bench_positions;
     use super::*;
+    use crate::party::Party;
+    use crate::party_member::{Morale, PartyMember};
     use crate::roster::Roster;
     use crate::scenario::{self, Preset, Setup};
     use crate::solver::{outcome_type, Solver, SolverStrategy};
     use crate::utility_value::get_utility;
+    use crate::weapon::{Fists, Stick, Weapon};
     use std::mem::discriminant;
 
     #[test]
@@ -327,20 +345,69 @@ mod tests {
     }
 
     #[test]
-    fn decided_position_has_empty_timeline() {
+    fn mtdf_agrees_with_basic_on_bench_positions() {
+        for depth in [6, 1] {
+            let search = |kind| Search { kind, depth };
+            for p in bench_positions(6) {
+                let basic = engage(&p.conflict, search(SearchKind::Basic));
+                let mtdf = engage(&p.conflict, search(SearchKind::Mtdf));
+                assert!(
+                    agree(&basic, &mtdf),
+                    "{} at depth {depth}: mtdf disagrees with basic",
+                    p.label
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn mtdf_converges_on_a_known_score() {
+        // The setup of the solver's simple fight: the faster hero wins with 5 health.
+        let member = |id, health, weapon, speed| PartyMember {
+            id,
+            health,
+            damage_taken: 0.0,
+            weapon,
+            can_act: true,
+            speed,
+            morale: Morale::Tactical,
+            fled: false,
+        };
+        let party = |id, member| Party {
+            id,
+            members: vec![member],
+            can_retreat: false,
+        };
+        let heroes = party(0, member(0, 25.0, Weapon::Fists(Fists { damage: 10.0 }), 6));
+        let villains = party(1, member(0, 25.0, Weapon::Stick(Stick { damage: 10.0 }), 3));
+        let conflict = Conflict::new(heroes, villains);
+
+        let outcome = engage(
+            &conflict,
+            Search {
+                kind: SearchKind::Mtdf,
+                depth: 40,
+            },
+        );
+        assert_eq!(outcome.outcome, OutcomeType::Win(5.0));
+    }
+
+    #[test]
+    fn every_kind_handles_a_decided_position() {
         let mut conflict =
             scenario::build(Setup::Preset(Preset::Skirmish), Roster::Random, 1).conflict;
         for villain in &mut conflict.opponent.members {
             villain.health = 0.0;
         }
-        let outcome = engage(
-            &conflict,
-            Search {
-                kind: SearchKind::Basic,
-                depth: 6,
-            },
-        );
-        assert!(outcome.timeline.is_empty());
-        assert_eq!(outcome.outcome, outcome_type(get_utility(&conflict)));
+        for kind in SearchKind::ALL {
+            let outcome = engage(&conflict, Search { kind, depth: 6 });
+            assert!(outcome.timeline.is_empty(), "{}", kind.name());
+            assert_eq!(
+                outcome.outcome,
+                outcome_type(get_utility(&conflict)),
+                "{}",
+                kind.name()
+            );
+        }
     }
 }

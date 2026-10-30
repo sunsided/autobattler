@@ -65,6 +65,9 @@ pub(crate) struct Searcher {
     pub kind: SearchKind,
     /// Positions already searched; used by kinds from [`SearchKind::Tt`] up.
     pub table: Table,
+    /// The number of root searches run, counted by [`mtdf`](super::mtdf::mtdf).
+    #[cfg(test)]
+    pub passes: usize,
 }
 
 impl Searcher {
@@ -78,6 +81,8 @@ impl Searcher {
             pv: Vec::new(),
             kind,
             table: Table::new(),
+            #[cfg(test)]
+            passes: 0,
         }
     }
 
