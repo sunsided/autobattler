@@ -5,21 +5,102 @@ use crate::party::Party;
 use crate::party_member::Morale;
 use crate::value::{Bound, TerminalState};
 use crate::weapon::Weapon;
-use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
+use std::hash::{BuildHasherDefault, Hash, Hasher};
 
-/// Mixed into the second hash pass so the two halves of a key differ.
-const SALT: u64 = 0x9e37_79b9_7f4a_7c15;
+/// Multipliers of the two halves of a key; odd, so no input bits are lost.
+const MULTIPLIERS: (u64, u64) = (0x9e37_79b9_7f4a_7c15, 0xc2b2_ae3d_27d4_eb4f);
+
+/// Starting values of the two halves of a key, so they differ from the first
+/// field on.
+const SEEDS: (u64, u64) = (0x243f_6a88_85a3_08d3, 0x1319_8a2e_0370_7344);
 
 /// A 128-bit hash of everything that decides how `state` plays out.
 pub fn position_key(state: &Conflict) -> (u64, u64) {
-    let mut first = DefaultHasher::new();
-    hash_position(state, &mut first);
-    let mut second = DefaultHasher::new();
-    SALT.hash(&mut second);
-    hash_position(state, &mut second);
-    (first.finish(), second.finish())
+    let mut mixer = Mixer {
+        first: SEEDS.0,
+        second: SEEDS.1,
+    };
+    hash_position(state, &mut mixer);
+    mixer.finish_pair()
+}
+
+/// Folds every field into two independent multiply-xorshift accumulators.
+struct Mixer {
+    first: u64,
+    second: u64,
+}
+
+impl Mixer {
+    fn add(&mut self, value: u64) {
+        self.first = (self.first ^ value).wrapping_mul(MULTIPLIERS.0);
+        self.first ^= self.first >> 29;
+        self.second = (self.second ^ value).wrapping_mul(MULTIPLIERS.1);
+        self.second ^= self.second >> 32;
+    }
+
+    fn finish_pair(&self) -> (u64, u64) {
+        (splitmix(self.first), splitmix(self.second))
+    }
+}
+
+/// The finalizer of splitmix64: every input bit affects every output bit.
+fn splitmix(mut x: u64) -> u64 {
+    x = (x ^ (x >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    x = (x ^ (x >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    x ^ (x >> 31)
+}
+
+impl Hasher for Mixer {
+    fn finish(&self) -> u64 {
+        splitmix(self.first)
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        for &byte in bytes {
+            self.add(u64::from(byte));
+        }
+    }
+
+    fn write_u8(&mut self, value: u8) {
+        self.add(u64::from(value));
+    }
+
+    fn write_u32(&mut self, value: u32) {
+        self.add(u64::from(value));
+    }
+
+    fn write_u64(&mut self, value: u64) {
+        self.add(value);
+    }
+
+    fn write_usize(&mut self, value: usize) {
+        self.add(value as u64);
+    }
+}
+
+/// Takes the first `u64` written as the hash: keys are already mixed.
+#[derive(Default)]
+struct PassThrough {
+    hash: u64,
+    set: bool,
+}
+
+impl Hasher for PassThrough {
+    fn finish(&self) -> u64 {
+        self.hash
+    }
+
+    fn write(&mut self, _bytes: &[u8]) {
+        unreachable!("keys are pairs of u64");
+    }
+
+    fn write_u64(&mut self, value: u64) {
+        if !self.set {
+            self.hash = value;
+            self.set = true;
+        }
+    }
 }
 
 fn hash_position(state: &Conflict, hasher: &mut impl Hasher) {
@@ -91,7 +172,7 @@ pub struct Entry {
 /// Positions already searched, by [`position_key`], up to a fixed number.
 #[derive(Debug)]
 pub struct Table {
-    entries: HashMap<(u64, u64), Entry>,
+    entries: HashMap<(u64, u64), Entry, BuildHasherDefault<PassThrough>>,
     cap: usize,
 }
 
@@ -108,7 +189,7 @@ impl Table {
     /// An empty table that holds up to [`CAP`](Table::CAP) entries.
     pub fn new() -> Table {
         Table {
-            entries: HashMap::new(),
+            entries: HashMap::default(),
             cap: Self::CAP,
         }
     }
@@ -117,7 +198,7 @@ impl Table {
     #[cfg(test)]
     pub fn with_cap(cap: usize) -> Table {
         Table {
-            entries: HashMap::new(),
+            entries: HashMap::default(),
             cap,
         }
     }
@@ -199,6 +280,20 @@ mod tests {
             change(&mut changed);
             assert_ne!(position_key(&changed), key, "{field}");
         }
+    }
+
+    #[test]
+    fn table_finds_what_it_stored() {
+        let mut table = Table::new();
+        for i in 0..100 {
+            table.put((splitmix(i), splitmix(!i)), entry(i as usize, false, 0));
+        }
+        assert_eq!(table.len(), 100);
+        for i in 0..100 {
+            let found = table.get((splitmix(i), splitmix(!i))).unwrap();
+            assert_eq!(found.depth_left, i as usize);
+        }
+        assert!(table.get((1, 2)).is_none());
     }
 
     #[test]

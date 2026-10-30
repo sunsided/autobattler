@@ -45,6 +45,9 @@ pub fn run(depth: usize) -> Vec<Row> {
     let mut rows: Vec<Row> = SearchKind::ALL
         .into_iter()
         .map(|kind| {
+            if kind == SearchKind::Basic {
+                return total(kind.name(), &positions, &basic, &basic);
+            }
             let search = Search { kind, depth };
             tally(kind.name(), &positions, &basic, |conflict| {
                 engage(conflict, search)
@@ -64,6 +67,17 @@ fn tally(
     basic: &[Outcome],
     search: impl Fn(&crate::conflict::Conflict) -> Outcome,
 ) -> Row {
+    let outcomes: Vec<Outcome> = positions.iter().map(|p| search(&p.conflict)).collect();
+    total(name, positions, &outcomes, basic)
+}
+
+/// Totals searched `outcomes`, checking each against the `basic` result.
+fn total(
+    name: &'static str,
+    positions: &[super::positions::BenchPosition],
+    outcomes: &[Outcome],
+    basic: &[Outcome],
+) -> Row {
     let mut row = Row {
         name,
         positions: positions.len(),
@@ -73,12 +87,11 @@ fn tally(
         matches: 0,
         mismatches: Vec::new(),
     };
-    for (position, reference) in positions.iter().zip(basic) {
-        let outcome = search(&position.conflict);
+    for ((position, outcome), reference) in positions.iter().zip(outcomes).zip(basic) {
         row.evaluations += outcome.evaluations;
         row.cuts += outcome.cuts;
         row.time += outcome.search_duration;
-        if agree(&outcome, reference) {
+        if agree(outcome, reference) {
             row.matches += 1;
         } else {
             row.mismatches.push(position.label.clone());
