@@ -65,7 +65,7 @@ pub(crate) struct Searcher {
     pub kind: SearchKind,
     /// Positions already searched; used by kinds from [`SearchKind::Tt`] up.
     pub table: Table,
-    /// The number of root searches run, counted by [`mtdf`](super::mtdf::mtdf).
+    /// The number of null-window searches run by [`mtdf`](super::mtdf::mtdf).
     #[cfg(test)]
     pub passes: usize,
 }
