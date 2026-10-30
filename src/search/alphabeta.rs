@@ -1,5 +1,7 @@
 //! The alpha-beta recursion.
 
+use super::ordering::order;
+use super::SearchKind;
 use crate::action::AppliedAction;
 use crate::conflict::Conflict;
 use crate::solver::{child_state, is_maximizing, moves};
@@ -39,7 +41,7 @@ pub(crate) struct RootResult {
 }
 
 /// Searches positions and counts what it did.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct Searcher {
     /// The number of positions visited.
     pub evaluations: usize,
@@ -52,9 +54,23 @@ pub(crate) struct Searcher {
     /// The previous step's root line, as action indices; its action is tried
     /// first at each ply while the search stays on it.
     pub pv: Vec<usize>,
+    /// The kind of search; decides which speedups apply.
+    pub kind: SearchKind,
 }
 
 impl Searcher {
+    /// A searcher of the given kind, with its counters at zero.
+    pub fn new(kind: SearchKind) -> Self {
+        Self {
+            evaluations: 0,
+            cuts: 0,
+            max_visited_depth: 0,
+            depth_limited: false,
+            pv: Vec::new(),
+            kind,
+        }
+    }
+
     /// Searches `state` up to `depth` actions deep within the window `(alpha, beta)`,
     /// recording every action tried at the root.
     pub fn root(&mut self, state: &Conflict, depth: usize, alpha: f32, beta: f32) -> RootResult {
@@ -131,9 +147,14 @@ impl Searcher {
             .get(ply)
             .copied()
             .filter(|&index| on_pv && index < actions.len());
+        let rest = if self.kind >= SearchKind::Ordered {
+            order(state, &actions)
+        } else {
+            (0..actions.len()).collect()
+        };
         let order = first
             .into_iter()
-            .chain((0..actions.len()).filter(|&index| Some(index) != first));
+            .chain(rest.into_iter().filter(|&index| Some(index) != first));
         for index in order {
             let action = &actions[index];
             if stops(is_max, score, alpha, beta) {

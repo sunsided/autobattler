@@ -16,7 +16,9 @@ pub fn agree(a: &Outcome, b: &Outcome) -> bool {
         return false;
     }
     match (a.timeline.first(), b.timeline.first()) {
-        (Some(a), Some(b)) => ranges_overlap(a.score.value(), a.bound, b.score.value(), b.bound),
+        (Some(ea), Some(eb)) => {
+            ranges_overlap(ea.score.value(), ea.bound, eb.score.value(), eb.bound)
+        }
         _ => {
             let value = |outcome: &Outcome| match outcome.outcome {
                 OutcomeType::Win(v)
@@ -51,6 +53,10 @@ fn range(score: f32, bound: Bound) -> (f32, f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::conflict::Conflict;
+    use crate::party::Party;
+    use crate::solver::Event;
+    use crate::value::TerminalState;
     use std::time::Duration;
 
     fn outcome(outcome: OutcomeType) -> Outcome {
@@ -108,5 +114,43 @@ mod tests {
         let win = outcome(OutcomeType::Win(1.0));
         let lose = outcome(OutcomeType::Lose(1.0));
         assert!(!agree(&win, &lose));
+    }
+
+    fn with_first_event(kind: OutcomeType, score: f32, bound: Bound) -> Outcome {
+        let party = |id| Party {
+            id,
+            members: Vec::new(),
+            can_retreat: false,
+        };
+        let state = Conflict::new(party(0), party(1));
+        let mut outcome = outcome(kind);
+        outcome.timeline.push(Event {
+            round: 1,
+            slot: 0,
+            actor: crate::party::Participant {
+                party_id: 0,
+                member_id: 0,
+            },
+            action: crate::action::AppliedAction::Flee,
+            state,
+            score: TerminalState::Heuristic(score),
+            bound,
+            alternatives: Vec::new(),
+            unexamined: 0,
+        });
+        outcome
+    }
+
+    #[test]
+    fn first_events_compare_by_score_range() {
+        let remain = |score, bound| with_first_event(OutcomeType::Remain(0.0), score, bound);
+        assert!(agree(
+            &remain(1.0, Bound::Exact),
+            &remain(0.5, Bound::AtLeast)
+        ));
+        assert!(!agree(
+            &remain(1.0, Bound::Exact),
+            &remain(2.0, Bound::Exact)
+        ));
     }
 }

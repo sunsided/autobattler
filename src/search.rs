@@ -2,6 +2,7 @@
 
 mod agreement;
 mod alphabeta;
+mod ordering;
 #[cfg(test)]
 pub mod positions;
 
@@ -84,7 +85,7 @@ pub fn engage(conflict: &Conflict, search: Search) -> Outcome {
     loop {
         trace!("Increase search depth to {depth}/{max_depth}");
         let start = Instant::now();
-        let mut searcher = Searcher::default();
+        let mut searcher = Searcher::new(search.kind);
         if search.kind >= SearchKind::Pv {
             searcher.pv = std::mem::take(&mut pv);
         }
@@ -289,6 +290,20 @@ mod tests {
             let basic = engage(&p.conflict, search(SearchKind::Basic));
             let pv = engage(&p.conflict, search(SearchKind::Pv));
             assert!(agree(&basic, &pv), "{}: pv disagrees with basic", p.label);
+        }
+    }
+
+    #[test]
+    fn ordered_agrees_with_basic_on_bench_positions() {
+        let search = |kind| Search { kind, depth: 6 };
+        for p in bench_positions(6) {
+            let basic = engage(&p.conflict, search(SearchKind::Basic));
+            let ordered = engage(&p.conflict, search(SearchKind::Ordered));
+            assert!(
+                agree(&basic, &ordered),
+                "{}: ordered disagrees with basic",
+                p.label
+            );
         }
     }
 
