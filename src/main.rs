@@ -47,6 +47,13 @@ fn main() -> ExitCode {
             }
             return ExitCode::SUCCESS;
         }
+        Ok(Command::BenchSearch { depth }) => {
+            println!(
+                "{}",
+                search::bench::render(&search::bench::run(depth), depth)
+            );
+            return ExitCode::SUCCESS;
+        }
         Err(message) => {
             eprintln!("{message}\n\n{}", cli::USAGE);
             return ExitCode::from(2);

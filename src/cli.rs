@@ -54,6 +54,8 @@ pub enum Command {
     Help,
     /// Prints the presets.
     ListScenarios,
+    /// Compares the search kinds on fixed positions at the given depth.
+    BenchSearch { depth: usize },
 }
 
 /// The usage text, one line per flag.
@@ -68,6 +70,7 @@ Options:
   --seed N               seed for stats and names; default: from the clock
   --depth N              search depth in actions (1-40, default 10; slow above ~16)
   --search KIND          search: basic, pv, ordered, tt, mtdf (default basic)
+  --bench-search         compare the search kinds on fixed positions (uses --depth)
   --list-scenarios       list the presets
   --fast                 print the whole text log at once (no TUI, no pauses)
   --no-explain           leave out the tactician notes
@@ -82,6 +85,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, String>
     let mut options = Options::default();
     let mut error = None;
     let mut list = false;
+    let mut bench = false;
     let mut scenario = None;
     let mut heroes = None;
     let mut villains = None;
@@ -97,6 +101,10 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, String>
             "--help" => return Ok(Command::Help),
             "--list-scenarios" => {
                 list = true;
+                Ok(())
+            }
+            "--bench-search" => {
+                bench = true;
                 Ok(())
             }
             "--fast" => {
@@ -156,6 +164,11 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, String>
     }
     if list {
         return Ok(Command::ListScenarios);
+    }
+    if bench {
+        return Ok(Command::BenchSearch {
+            depth: options.depth,
+        });
     }
 
     let custom = heroes.is_some() || villains.is_some();
@@ -247,6 +260,18 @@ mod tests {
         let options = run(&["--fast", "--no-explain"]);
         assert!(options.fast);
         assert!(!options.explain);
+    }
+
+    #[test]
+    fn bench_search() {
+        assert_eq!(
+            parse(args(&["--bench-search"])),
+            Ok(Command::BenchSearch { depth: 10 })
+        );
+        assert_eq!(
+            parse(args(&["--bench-search", "--depth", "6"])),
+            Ok(Command::BenchSearch { depth: 6 })
+        );
     }
 
     #[test]

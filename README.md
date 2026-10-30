@@ -148,6 +148,11 @@ Every task takes extra flags after `--`, e.g. `task run:brawl -- --seed 42 --fas
   `basic`). Each kind adds a speedup to the one before and plays the same fight; the stats line
   names the kind used.
 
+**Comparing the searches.** `task bench:search` (or `cargo run --release -- --bench-search
+--depth N`) searches a fixed set of positions with every kind and prints a table of evaluations
+(also relative to `basic`), cuts and time, and how many positions each kind agrees with `basic`
+on. The `legacy` row is the old solver.
+
 Every combatant searches anew on their turn, so a fight plays on until one side wins or escapes,
 however far that is beyond the lookahead. After 50 rounds it is called undecided.
 

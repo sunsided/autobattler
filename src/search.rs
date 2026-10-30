@@ -1,12 +1,10 @@
 //! A recursive alpha-beta search, in kinds that add speedups on top of each other.
 
-// Only tests compare outcomes until the bench uses it.
-#[cfg_attr(not(test), allow(dead_code))]
 mod agreement;
 mod alphabeta;
+pub mod bench;
 mod mtdf;
 mod ordering;
-#[cfg(test)]
 pub mod positions;
 mod table;
 

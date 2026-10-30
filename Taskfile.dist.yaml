@@ -30,6 +30,13 @@ tasks:
       - task: run
         vars: { CLI_ARGS: '--list-scenarios' }
 
+  bench:search:
+    desc: Compare the search kinds (DEPTH=10)
+    vars:
+      DEPTH: '{{ .DEPTH | default "10" }}'
+    cmds:
+      - cargo run --release -- --bench-search --depth {{.DEPTH}}
+
   run:duel:
     desc: Fight a 1v1 duel (extra flags after --, e.g. -- --seed 7)
     cmds:
