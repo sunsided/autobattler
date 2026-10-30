@@ -20,6 +20,9 @@ mod party_member;
 mod rng;
 mod roster;
 mod scenario;
+// The engine replaces the solver in a later step; until then only tests use it.
+#[cfg_attr(not(test), allow(dead_code))]
+mod search;
 mod solver;
 mod tui;
 mod utility_value;

@@ -1,0 +1,295 @@
+//! A recursive alpha-beta search, in kinds that add speedups on top of each other.
+
+mod alphabeta;
+#[cfg(test)]
+pub mod positions;
+
+use crate::conflict::Conflict;
+use crate::solver::{
+    child_state, is_maximizing, moves, outcome_type, Alternative, Event, Outcome, OutcomeType,
+};
+use crate::utility_value::get_utility;
+use alphabeta::{RootResult, Searcher};
+use log::trace;
+use std::cmp::Ordering;
+use std::time::{Duration, Instant};
+
+/// A search algorithm, from the plain alpha-beta search to the fastest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchKind {
+    /// Alpha-beta search with moves in their fixed order.
+    Basic,
+    /// Tries the previous deepening step's best line first.
+    Pv,
+    /// Also orders the remaining moves, most promising first.
+    Ordered,
+    /// Also remembers searched positions in a transposition table.
+    Tt,
+    /// Also narrows the window to null windows around a guess (MTD(f)).
+    Mtdf,
+}
+
+impl SearchKind {
+    /// Every kind, each adding to the one before.
+    pub const ALL: [SearchKind; 5] = [
+        SearchKind::Basic,
+        SearchKind::Pv,
+        SearchKind::Ordered,
+        SearchKind::Tt,
+        SearchKind::Mtdf,
+    ];
+
+    /// The name used on the command line.
+    pub fn name(self) -> &'static str {
+        match self {
+            SearchKind::Basic => "basic",
+            SearchKind::Pv => "pv",
+            SearchKind::Ordered => "ordered",
+            SearchKind::Tt => "tt",
+            SearchKind::Mtdf => "mtdf",
+        }
+    }
+
+    /// Looks a kind up by its command-line name.
+    pub fn from_name(name: &str) -> Option<SearchKind> {
+        Self::ALL.into_iter().find(|kind| kind.name() == name)
+    }
+}
+
+/// How to search a position.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Search {
+    /// The algorithm.
+    pub kind: SearchKind,
+    /// The deepest the search looks, in combatant actions.
+    pub depth: usize,
+}
+
+/// Predicts the best line of play from `conflict`, in favor of the initiator.
+///
+/// Deepens one action at a time up to `search.depth` (at least 1), stopping
+/// early once a win is found or the fight ends within the search. The
+/// evaluations, cuts and duration are summed over all steps; the depth
+/// statistics are those of the last step.
+///
+/// Every kind searches as [`SearchKind::Basic`] until its speedup lands.
+pub fn engage(conflict: &Conflict, search: Search) -> Outcome {
+    let max_depth = search.depth.max(1);
+    let mut evaluations = 0;
+    let mut cuts = 0;
+    let mut search_duration = Duration::ZERO;
+    let mut depth = 1;
+    loop {
+        trace!("Increase search depth to {depth}/{max_depth}");
+        let start = Instant::now();
+        let mut searcher = Searcher::default();
+        let root = searcher.root(conflict, depth, f32::NEG_INFINITY, f32::INFINITY);
+        search_duration += start.elapsed();
+        evaluations += searcher.evaluations;
+        cuts += searcher.cuts;
+
+        let won = matches!(outcome_type(root.scored.score), OutcomeType::Win(_));
+        if won || !searcher.depth_limited || depth >= max_depth {
+            trace!("Iterative deepening finished at depth {depth}");
+            return Outcome {
+                outcome: outcome_type(root.scored.score),
+                timeline: timeline(conflict, root),
+                evaluations,
+                cuts,
+                search_duration,
+                max_visited_depth: searcher.max_visited_depth,
+                depth_limited: searcher.depth_limited,
+            };
+        }
+        depth += 1;
+    }
+}
+
+/// Plays the conflict to its end, searching anew before every action.
+///
+/// Each search looks ahead as far as `search` allows; only its first move
+/// is played. Stops early, with an unknown outcome, once `max_rounds` rounds
+/// have been played. Statistics are summed over all searches; the depth is
+/// the deepest any search went.
+pub fn play(conflict: &Conflict, search: Search, max_rounds: usize) -> Outcome {
+    let mut state = conflict.clone();
+    let mut timeline = Vec::new();
+    let mut evaluations = 0;
+    let mut cuts = 0;
+    let mut search_duration = Duration::ZERO;
+    let mut max_visited_depth = 0;
+    let mut depth_limited = false;
+
+    while let Some(turn) = state.next_turn() {
+        if turn.round > max_rounds {
+            break;
+        }
+        let outcome = engage(&state, search);
+        evaluations += outcome.evaluations;
+        cuts += outcome.cuts;
+        search_duration += outcome.search_duration;
+        max_visited_depth = max_visited_depth.max(outcome.max_visited_depth);
+        depth_limited |= outcome.depth_limited;
+
+        let Some(event) = outcome.timeline.into_iter().next() else {
+            break;
+        };
+        state = event.state.clone();
+        timeline.push(event);
+    }
+
+    Outcome {
+        outcome: outcome_type(get_utility(&state)),
+        timeline,
+        evaluations,
+        cuts,
+        search_duration,
+        max_visited_depth,
+        depth_limited,
+    }
+}
+
+/// Replays the root's best line from `conflict` as events.
+///
+/// The first event lists the other root actions tried, best first for the
+/// mover; later events list none.
+fn timeline(conflict: &Conflict, root: RootResult) -> Vec<Event> {
+    let mut alternatives = Vec::new();
+    let mut unexamined = 0;
+    if let Some(turn) = conflict.next_turn() {
+        let actor_is_initiator = is_maximizing(conflict, &turn);
+        alternatives = root
+            .explored
+            .into_iter()
+            .filter(|(index, _, _)| Some(*index) != root.best)
+            .map(|(_, action, scored)| Alternative {
+                action,
+                score: scored.score,
+                bound: scored.bound,
+            })
+            .collect();
+        // Stable, so ties keep the order they were tried in.
+        alternatives.sort_by(|a, b| {
+            let ordering = a.score.partial_cmp(&b.score).unwrap_or(Ordering::Equal);
+            if actor_is_initiator {
+                ordering.reverse()
+            } else {
+                ordering
+            }
+        });
+        if root.best.is_some() {
+            unexamined = moves(conflict, &turn).len() - (alternatives.len() + 1);
+        }
+    }
+
+    let mut events = Vec::with_capacity(root.scored.line.len());
+    let mut state = conflict.clone();
+    for step in root.scored.line {
+        let turn = state
+            .next_turn()
+            .expect("A best line only continues while the fight does");
+        let action = moves(&state, &turn).swap_remove(step.index);
+        state = child_state(&state, &turn, &action);
+        events.push(Event {
+            round: turn.round,
+            slot: turn.slot,
+            actor: turn.actor,
+            action,
+            state: state.clone(),
+            score: step.score,
+            bound: step.bound,
+            alternatives: std::mem::take(&mut alternatives),
+            unexamined: std::mem::take(&mut unexamined),
+        });
+    }
+    events
+}
+
+#[cfg(test)]
+mod tests {
+    use super::positions::bench_positions;
+    use super::*;
+    use crate::roster::Roster;
+    use crate::scenario::{self, Preset, Setup};
+    use crate::solver::{outcome_type, Solver, SolverStrategy};
+    use crate::utility_value::get_utility;
+    use std::mem::discriminant;
+
+    #[test]
+    fn kind_names_round_trip() {
+        for kind in SearchKind::ALL {
+            assert_eq!(SearchKind::from_name(kind.name()), Some(kind));
+        }
+        assert_eq!(SearchKind::from_name("fast"), None);
+    }
+
+    #[test]
+    fn basic_matches_legacy_on_bench_positions() {
+        let search = Search {
+            kind: SearchKind::Basic,
+            depth: 6,
+        };
+        for p in bench_positions(6) {
+            let label = &p.label;
+            let basic = engage(&p.conflict, search);
+            let legacy = Solver::engage(&p.conflict, SolverStrategy::IterativeDeepening(6));
+
+            assert_eq!(basic.outcome, legacy.outcome, "{label}: outcome");
+            assert_eq!(
+                basic.depth_limited, legacy.depth_limited,
+                "{label}: depth limited"
+            );
+            assert_eq!(
+                basic.max_visited_depth, legacy.max_visited_depth,
+                "{label}: max visited depth"
+            );
+
+            // The whole best line agrees, not only the move played.
+            assert_eq!(
+                basic.timeline.len(),
+                legacy.timeline.len(),
+                "{label}: timeline length"
+            );
+            for (i, (b, l)) in basic.timeline.iter().zip(&legacy.timeline).enumerate() {
+                assert_eq!(b.action, l.action, "{label}: event {i} action");
+                assert_eq!(b.score.value(), l.score.value(), "{label}: event {i} score");
+                assert_eq!(
+                    discriminant(&b.score),
+                    discriminant(&l.score),
+                    "{label}: event {i} score kind"
+                );
+                assert_eq!(b.bound, l.bound, "{label}: event {i} bound");
+            }
+
+            let (Some(b), Some(l)) = (basic.timeline.first(), legacy.timeline.first()) else {
+                continue;
+            };
+            assert_eq!(b.unexamined, l.unexamined, "{label}: unexamined");
+            let alternatives = |e: &crate::solver::Event| {
+                e.alternatives
+                    .iter()
+                    .map(|a| (a.action.clone(), a.score.value(), a.bound))
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(alternatives(b), alternatives(l), "{label}: alternatives");
+        }
+    }
+
+    #[test]
+    fn decided_position_has_empty_timeline() {
+        let mut conflict =
+            scenario::build(Setup::Preset(Preset::Skirmish), Roster::Random, 1).conflict;
+        for villain in &mut conflict.opponent.members {
+            villain.health = 0.0;
+        }
+        let outcome = engage(
+            &conflict,
+            Search {
+                kind: SearchKind::Basic,
+                depth: 6,
+            },
+        );
+        assert!(outcome.timeline.is_empty());
+        assert_eq!(outcome.outcome, outcome_type(get_utility(&conflict)));
+    }
+}

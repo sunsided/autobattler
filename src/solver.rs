@@ -72,9 +72,6 @@ pub(crate) fn child_state(state: &Conflict, turn: &Turn, action: &AppliedAction)
 }
 
 /// The legal moves of the combatant acting in `turn`, in the fixed [`ActionIterator`] order.
-///
-/// Only the recursive engine needs this; until it lands, tests are the sole caller.
-#[allow(dead_code)]
 pub(crate) fn moves(state: &Conflict, turn: &Turn) -> Vec<AppliedAction> {
     Solver::actions_for(state, turn).collect()
 }
@@ -331,7 +328,6 @@ impl Solver {
             node.action_iter = Some(Self::actions_for(&node.state, &turn));
         }
 
-        // Select the party of the acting combatant.
         debug_assert_eq!(is_maximizing(&node.state, &turn), node.is_maximizing);
 
         if let Some(action) = node.action_iter.as_mut().and_then(|i| i.next()) {
