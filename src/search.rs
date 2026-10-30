@@ -247,10 +247,9 @@ mod tests {
     use crate::party_member::{Morale, PartyMember};
     use crate::roster::Roster;
     use crate::scenario::{self, Preset, Setup};
-    use crate::solver::{outcome_type, Solver, SolverStrategy};
+    use crate::solver::outcome_type;
     use crate::utility_value::get_utility;
     use crate::weapon::{Fists, Stick, Weapon};
-    use std::mem::discriminant;
 
     #[test]
     fn kind_names_round_trip() {
@@ -258,58 +257,6 @@ mod tests {
             assert_eq!(SearchKind::from_name(kind.name()), Some(kind));
         }
         assert_eq!(SearchKind::from_name("fast"), None);
-    }
-
-    #[test]
-    fn basic_matches_legacy_on_bench_positions() {
-        let search = Search {
-            kind: SearchKind::Basic,
-            depth: 6,
-        };
-        for p in bench_positions(6) {
-            let label = &p.label;
-            let basic = engage(&p.conflict, search);
-            let legacy = Solver::engage(&p.conflict, SolverStrategy::IterativeDeepening(6));
-
-            assert_eq!(basic.outcome, legacy.outcome, "{label}: outcome");
-            assert_eq!(
-                basic.depth_limited, legacy.depth_limited,
-                "{label}: depth limited"
-            );
-            assert_eq!(
-                basic.max_visited_depth, legacy.max_visited_depth,
-                "{label}: max visited depth"
-            );
-
-            // The whole best line agrees, not only the move played.
-            assert_eq!(
-                basic.timeline.len(),
-                legacy.timeline.len(),
-                "{label}: timeline length"
-            );
-            for (i, (b, l)) in basic.timeline.iter().zip(&legacy.timeline).enumerate() {
-                assert_eq!(b.action, l.action, "{label}: event {i} action");
-                assert_eq!(b.score.value(), l.score.value(), "{label}: event {i} score");
-                assert_eq!(
-                    discriminant(&b.score),
-                    discriminant(&l.score),
-                    "{label}: event {i} score kind"
-                );
-                assert_eq!(b.bound, l.bound, "{label}: event {i} bound");
-            }
-
-            let (Some(b), Some(l)) = (basic.timeline.first(), legacy.timeline.first()) else {
-                continue;
-            };
-            assert_eq!(b.unexamined, l.unexamined, "{label}: unexamined");
-            let alternatives = |e: &crate::solver::Event| {
-                e.alternatives
-                    .iter()
-                    .map(|a| (a.action.clone(), a.score.value(), a.bound))
-                    .collect::<Vec<_>>()
-            };
-            assert_eq!(alternatives(b), alternatives(l), "{label}: alternatives");
-        }
     }
 
     #[test]

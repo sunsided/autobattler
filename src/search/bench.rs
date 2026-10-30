@@ -3,15 +3,12 @@
 use super::agreement::agree;
 use super::positions::bench_positions;
 use super::{engage, Search, SearchKind};
-use crate::solver::{Outcome, Solver, SolverStrategy};
+use crate::solver::Outcome;
 use std::time::Duration;
-
-/// The name of the row for the old engine.
-const LEGACY: &str = "legacy";
 
 /// One kind's totals over all positions.
 pub struct Row {
-    /// The kind's name, or `legacy` for the old engine.
+    /// The kind's name.
     pub name: &'static str,
     /// The number of positions searched.
     pub positions: usize,
@@ -27,48 +24,25 @@ pub struct Row {
     pub mismatches: Vec<String>,
 }
 
-/// Searches every bench position at `depth` with each kind, then with the
-/// old engine, and totals what each did.
+/// Searches every bench position at `depth` with each kind and totals what
+/// each did.
 pub fn run(depth: usize) -> Vec<Row> {
     let positions = bench_positions(depth);
-    let basic: Vec<Outcome> = positions
-        .iter()
-        .map(|p| {
-            let search = Search {
-                kind: SearchKind::Basic,
-                depth,
-            };
-            engage(&p.conflict, search)
-        })
-        .collect();
-
-    let mut rows: Vec<Row> = SearchKind::ALL
+    let search = |kind| {
+        let search = Search { kind, depth };
+        positions
+            .iter()
+            .map(|p| engage(&p.conflict, search))
+            .collect::<Vec<Outcome>>()
+    };
+    let basic = search(SearchKind::Basic);
+    SearchKind::ALL
         .into_iter()
-        .map(|kind| {
-            if kind == SearchKind::Basic {
-                return total(kind.name(), &positions, &basic, &basic);
-            }
-            let search = Search { kind, depth };
-            tally(kind.name(), &positions, &basic, |conflict| {
-                engage(conflict, search)
-            })
+        .map(|kind| match kind {
+            SearchKind::Basic => total(kind.name(), &positions, &basic, &basic),
+            _ => total(kind.name(), &positions, &search(kind), &basic),
         })
-        .collect();
-    rows.push(tally(LEGACY, &positions, &basic, |conflict| {
-        Solver::engage(conflict, SolverStrategy::IterativeDeepening(depth))
-    }));
-    rows
-}
-
-/// Searches each position with `search` and totals the outcomes.
-fn tally(
-    name: &'static str,
-    positions: &[super::positions::BenchPosition],
-    basic: &[Outcome],
-    search: impl Fn(&crate::conflict::Conflict) -> Outcome,
-) -> Row {
-    let outcomes: Vec<Outcome> = positions.iter().map(|p| search(&p.conflict)).collect();
-    total(name, positions, &outcomes, basic)
+        .collect()
 }
 
 /// Totals searched `outcomes`, checking each against the `basic` result.
@@ -112,7 +86,7 @@ pub fn render(rows: &[Row], depth: usize) -> String {
         .iter()
         .map(|row| {
             let ratio = match basic {
-                Some(basic) if row.name != LEGACY && basic > 0 => {
+                Some(basic) if basic > 0 => {
                     format!("{:.2}×", row.evaluations as f64 / basic as f64)
                 }
                 _ => "n/a".to_string(),
@@ -175,7 +149,7 @@ mod tests {
                 mismatches: Vec::new(),
             },
             Row {
-                name: "legacy",
+                name: "tt",
                 positions: 3,
                 evaluations: 420,
                 cuts: 90,
@@ -186,10 +160,10 @@ mod tests {
         ];
         let expected = "\
 search bench · depth 6 · 3 positions
-kind    evaluations  ×basic  cuts    time  match
-basic          1000   1.00×   200  12.3ms    3/3
-legacy          420     n/a    90   5.0ms    2/3
-  legacy: duel seed 1 @ 3";
+kind   evaluations  ×basic  cuts    time  match
+basic         1000   1.00×   200  12.3ms    3/3
+tt             420   0.42×    90   5.0ms    2/3
+  tt: duel seed 1 @ 3";
         assert_eq!(render(&rows, 6), expected);
     }
 }

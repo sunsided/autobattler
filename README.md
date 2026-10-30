@@ -145,13 +145,27 @@ Every task takes extra flags after `--`, e.g. `task run:brawl -- --seed 42 --fas
 - `--seed N` replays a fight; `--depth N` sets how many actions ahead the tactician looks (1–40,
   default 10). Large fights get slow above about 16.
 - `--search KIND` picks how the tactician searches: `basic`, `pv`, `ordered`, `tt` or `mtdf` (default
-  `basic`). Each kind adds a speedup to the one before and plays the same fight; the stats line
-  names the kind used.
+  `tt`). Each kind adds a speedup to the one before and finds moves just as good, but where moves
+  tie it may pick another one, so a seed can play out differently; `--search basic` replays fights
+  as before. The stats line names the kind used.
 
 **Comparing the searches.** `task bench:search` (or `cargo run --release -- --bench-search
 --depth N`) searches a fixed set of positions with every kind and prints a table of evaluations
 (also relative to `basic`), cuts and time, and how many positions each kind agrees with `basic`
-on. The `legacy` row is the old solver.
+on. At the default depth of 10 it reads like this (times vary from run to run and machine to machine):
+
+```text
+search bench · depth 10 · 37 positions
+kind     evaluations  ×basic    cuts     time  match
+basic         718408   1.00×  231946  153.0ms  37/37
+pv            547197   0.76×  163258  112.7ms  37/37
+ordered       440539   0.61×  156447  118.0ms  37/37
+tt            248644   0.35×   77682   98.4ms  37/37
+mtdf          239057   0.33×   77587  104.3ms  37/37
+```
+
+`tt` is the default: over five runs its median time was within about 2% of `mtdf`'s, too close
+to call, so the simpler kind won.
 
 Every combatant searches anew on their turn, so a fight plays on until one side wins or escapes,
 however far that is beyond the lookahead. After 50 rounds it is called undecided.
@@ -187,7 +201,7 @@ As for actions,
 
 ## How the tactician picks a move
 
-Both sides are played by the same search ([`src/solver.rs`](src/solver.rs)). It plays the
+Both sides are played by the same search ([`src/search.rs`](src/search.rs)). It plays the
 initiating party, the heroes, as the side that wants the score up. It assumes the other side
 always answers with whatever hurts the heroes most.
 
@@ -232,22 +246,25 @@ bad enough.
 solver first searches 1 action deep, then 2, and so on up to `N`. It stops early when a search
 sees the whole fight to its end, or finds a win for the heroes, so easy positions stay cheap.
 
-**The tactician notes.** After each search, the solver walks back down the best line and
-collects the other moves the acting combatant tried, ranked from that combatant's point of view.
+**The tactician notes.** After each search, the solver collects the other moves the acting
+combatant tried, ranked from that combatant's point of view.
 Those are the `↳ tactician: expects …` and `alt: …` lines in the log. A cut leaves a move's score
 only partly known, which the log marks as `≥` or `≤`. The log shows the two best alternatives;
 `+N more` counts the other ones that were tried, and `N not examined` the moves a cut skipped.
 
 ## Things to do
 
-- [x] Regular minimax ([`src/solver.rs`](src/solver.rs)).
+- [x] Regular minimax ([`src/search/alphabeta.rs`](src/search/alphabeta.rs)).
 - [x] Rounds with speed-ordered initiative, one combatant per turn ([`src/action_iterator.rs`](src/action_iterator.rs)).
-- [x] Implement Alpha-Beta pruning ([`src/value.rs`](src/value.rs)).
+- [x] Implement Alpha-Beta pruning ([`src/search/alphabeta.rs`](src/search/alphabeta.rs)).
 - [x] Implement Iterative Deepening.
-- [ ] Search the best line of the previous depth first when deepening.
-- [ ] Order moves by a heuristic (e.g. the blow that drops the weakest enemy first), so cuts come earlier.
-- [ ] Cache positions already scored (a transposition table): hitting A then B and B then A meet again.
-- [ ] Try MTD(f), the practical form of SSS\*, on top of that.
+- [x] Search the best line of the previous depth first when deepening (`--search pv`).
+- [x] Order moves by a heuristic (e.g. the blow that drops the weakest enemy first), so cuts come
+  earlier (`--search ordered`, [`src/search/ordering.rs`](src/search/ordering.rs)).
+- [x] Cache positions already scored (a transposition table): hitting A then B and B then A meet
+  again (`--search tt`, [`src/search/table.rs`](src/search/table.rs)).
+- [x] Try MTD(f), the practical form of SSS\*, on top of that (`--search mtdf`,
+  [`src/search/mtdf.rs`](src/search/mtdf.rs)).
 
 A\* itself does not fit: it searches for the cheapest path when one side controls every move, and
 here the villains answer every move with their worst. With the villains fixed to a simple rule,

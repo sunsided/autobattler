@@ -40,7 +40,7 @@ impl Default for Options {
             roster: None,
             seed: None,
             depth: 10,
-            search: SearchKind::Basic,
+            search: SearchKind::Tt,
         }
     }
 }
@@ -69,7 +69,7 @@ Options:
   --roster KIND          random (default) or archetypes; for generated parties
   --seed N               seed for stats and names; default: from the clock
   --depth N              search depth in actions (1-40, default 10; slow above ~16)
-  --search KIND          search: basic, pv, ordered, tt, mtdf (default basic)
+  --search KIND          search: basic, pv, ordered, tt, mtdf (default tt)
   --bench-search         compare the search kinds on fixed positions (uses --depth)
   --list-scenarios       list the presets
   --fast                 print the whole text log at once (no TUI, no pauses)
@@ -421,8 +421,9 @@ mod tests {
 
     #[test]
     fn search() {
-        assert_eq!(run(&[]).search, SearchKind::Basic);
-        assert_eq!(run(&["--search", "tt"]).search, SearchKind::Tt);
+        assert_eq!(run(&[]).search, SearchKind::Tt);
+        assert_eq!(run(&["--search", "basic"]).search, SearchKind::Basic);
+        assert_eq!(run(&["--search", "pv"]).search, SearchKind::Pv);
         assert_eq!(run(&["--search=mtdf"]).search, SearchKind::Mtdf);
     }
 

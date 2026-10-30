@@ -673,7 +673,8 @@ mod tests {
     use crate::narration::{BeatKind, NarrationOptions, Narrator};
     use crate::roster::Roster;
     use crate::scenario::{self, Setup};
-    use crate::solver::{Outcome, Solver, SolverStrategy, MAX_ROUNDS};
+    use crate::search::{Search, SearchKind};
+    use crate::solver::{Outcome, Solver, MAX_ROUNDS};
     use crate::tui::app::{App, Key};
 
     /// Owns everything a [`FightView`] borrows.
@@ -690,11 +691,12 @@ mod tests {
         fn new(start: Conflict, names: Vec<Vec<String>>, depth: usize, scenario: &str) -> Self {
             colored::control::set_override(false);
             let seed = 7;
-            let outcome = Solver::play(
-                &start,
-                SolverStrategy::IterativeDeepening(depth),
-                MAX_ROUNDS,
-            );
+            // `basic` replays the fights the goldens show.
+            let search = Search {
+                kind: SearchKind::Basic,
+                depth,
+            };
+            let outcome = Solver::play(&start, search, MAX_ROUNDS);
             let options = NarrationOptions {
                 explain: true,
                 seed: Some(seed),

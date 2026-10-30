@@ -330,3 +330,126 @@ fn reaches_beta(score: TerminalState, beta: f32) -> bool {
 fn reaches_alpha(score: TerminalState, alpha: f32) -> bool {
     score.is_finite() && score.value() <= alpha
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::party::Party;
+    use crate::party_member::{Morale, PartyMember};
+    use crate::weapon::{Fists, Stick, Weapon};
+
+    fn member(id: usize, health: f32, weapon: Weapon, speed: u32) -> PartyMember {
+        PartyMember {
+            id,
+            health,
+            damage_taken: 0.0,
+            weapon,
+            can_act: true,
+            speed,
+            morale: Morale::Tactical,
+            fled: false,
+        }
+    }
+
+    fn party(id: usize, members: Vec<PartyMember>, can_retreat: bool) -> Party {
+        Party {
+            id,
+            members,
+            can_retreat,
+        }
+    }
+
+    /// A faster hero (fists, 10) against one villain (stick, 10), both at 25
+    /// health: the hero's third punch, the fifth action, wins with 5 health.
+    fn duel() -> Conflict {
+        Conflict::new(
+            party(
+                0,
+                vec![member(0, 25.0, Weapon::Fists(Fists { damage: 10.0 }), 6)],
+                false,
+            ),
+            party(
+                1,
+                vec![member(0, 25.0, Weapon::Stick(Stick { damage: 10.0 }), 3)],
+                false,
+            ),
+        )
+    }
+
+    fn full_window(searcher: &mut Searcher, state: &Conflict, depth: usize) -> RootResult {
+        searcher.root(state, depth, f32::NEG_INFINITY, f32::INFINITY)
+    }
+
+    #[test]
+    fn a_win_at_the_horizon_is_scored_but_depth_limited() {
+        let mut searcher = Searcher::new(SearchKind::Basic);
+        let root = full_window(&mut searcher, &duel(), 5);
+        // Scores compare by value only, so check the kind as well.
+        assert_eq!(root.scored.score, TerminalState::Win(5.0));
+        assert!(matches!(root.scored.score, TerminalState::Win(_)));
+        assert_eq!(root.scored.line.len(), 5);
+        // The fight ends exactly where the depth runs out, so the search
+        // cannot tell it ended and counts as depth limited.
+        assert!(searcher.depth_limited);
+        assert!(!root.scored.complete);
+        assert_eq!(searcher.max_visited_depth, 5);
+    }
+
+    #[test]
+    fn a_minimizing_root_stops_at_the_first_defeat() {
+        // The hero (20 health) moves first; Molphige's 20-damage punch then
+        // ends the fight, so the villains' turn is the root here.
+        let start = Conflict::new(
+            party(
+                0,
+                vec![member(0, 20.0, Weapon::Fists(Fists { damage: 10.0 }), 6)],
+                false,
+            ),
+            party(
+                1,
+                vec![
+                    member(0, 15.0, Weapon::Stick(Stick { damage: 5.0 }), 3),
+                    member(1, 15.0, Weapon::Fists(Fists { damage: 20.0 }), 5),
+                ],
+                true,
+            ),
+        );
+        let turn = start.next_turn().expect("the hero acts");
+        let state = child_state(&start, &turn, &moves(&start, &turn)[0]);
+        let turn = state.next_turn().expect("Molphige acts");
+        assert!(!is_maximizing(&state, &turn));
+        assert_eq!(moves(&state, &turn).len(), 4);
+
+        let mut searcher = Searcher::new(SearchKind::Basic);
+        let root = full_window(&mut searcher, &state, 10);
+        assert_eq!(root.scored.score, TerminalState::Defeat(-20.0));
+        // Three moves were never tried, so the villains might do even better.
+        assert_eq!(root.scored.bound, Bound::AtMost);
+        assert_eq!(root.explored.len(), 1);
+        assert_eq!(root.best, Some(root.explored[0].0));
+        assert_eq!(searcher.cuts, 1);
+    }
+
+    #[test]
+    fn the_last_move_can_cut_too() {
+        // Broken courage leaves the hero nothing but fleeing: one move.
+        let mut start = duel();
+        start.initiator.members[0].morale = Morale::Courage(1.0);
+        let turn = start.next_turn().expect("the hero acts");
+        assert_eq!(moves(&start, &turn), vec![AppliedAction::Flee]);
+
+        let mut searcher = Searcher::new(SearchKind::Basic);
+        let exact = full_window(&mut searcher, &start, 1);
+        assert_eq!(exact.scored.bound, Bound::Exact);
+        assert_eq!(searcher.cuts, 0);
+
+        // A window the only move reaches: it cuts with nothing left to prune.
+        let score = exact.scored.score.value();
+        let mut searcher = Searcher::new(SearchKind::Basic);
+        let cut = searcher.root(&start, 1, score - 1.0, score);
+        assert_eq!(cut.scored.score.value(), score);
+        assert_eq!(cut.scored.bound, Bound::AtLeast);
+        assert_eq!(cut.explored.len(), 1);
+        assert_eq!(searcher.cuts, 1);
+    }
+}

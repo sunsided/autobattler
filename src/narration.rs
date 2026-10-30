@@ -339,8 +339,15 @@ mod tests {
     use crate::conflict::Conflict;
     use crate::party_member::{Morale, PartyMember};
     use crate::scenario;
-    use crate::solver::{Solver, SolverStrategy, MAX_ROUNDS};
+    use crate::search::{Search, SearchKind};
+    use crate::solver::{Solver, MAX_ROUNDS};
     use crate::weapon::{Fists, Weapon};
+
+    /// The search behind the goldens: `basic` replays the fights they show.
+    const BASIC: Search = Search {
+        kind: SearchKind::Basic,
+        depth: 10,
+    };
 
     fn names() -> Vec<Vec<String>> {
         vec![
@@ -359,7 +366,7 @@ mod tests {
         explain: bool,
     ) -> String {
         colored::control::set_override(false);
-        let outcome = Solver::play(conflict, SolverStrategy::IterativeDeepening(10), MAX_ROUNDS);
+        let outcome = Solver::play(conflict, BASIC, MAX_ROUNDS);
         let narrator = Narrator::new(
             names,
             NarrationOptions {
@@ -408,7 +415,7 @@ mod tests {
     fn stats_line_shows_the_seed() {
         let names = names();
         let conflict = scenario::default_conflict();
-        let outcome = Solver::engage(&conflict, SolverStrategy::IterativeDeepening(10));
+        let outcome = Solver::engage(&conflict, BASIC);
         let stats = |seed| {
             let options = NarrationOptions {
                 explain: false,
@@ -445,11 +452,7 @@ mod tests {
                 seed: None,
             },
         );
-        let outcome = Solver::play(
-            &conflict,
-            SolverStrategy::IterativeDeepening(10),
-            MAX_ROUNDS,
-        );
+        let outcome = Solver::play(&conflict, BASIC, MAX_ROUNDS);
         let beats = narrator.narrate(&conflict, &outcome);
         assert_eq!(beats[0].kind, BeatKind::Intro);
         assert_eq!(beats[0].lines, vec![narrator.intro(&conflict)]);
@@ -466,7 +469,7 @@ mod tests {
         assert!(!text.contains("Round"), "{text}");
 
         let names = names();
-        let outcome = Solver::engage(&conflict, SolverStrategy::IterativeDeepening(10));
+        let outcome = Solver::engage(&conflict, BASIC);
         let kinds: Vec<BeatKind> = Narrator::new(
             &names,
             NarrationOptions {
@@ -576,11 +579,7 @@ mod tests {
     fn ambush_beats() -> Vec<Beat> {
         let names = names();
         let conflict = scenario::default_conflict();
-        let outcome = Solver::play(
-            &conflict,
-            SolverStrategy::IterativeDeepening(10),
-            MAX_ROUNDS,
-        );
+        let outcome = Solver::play(&conflict, BASIC, MAX_ROUNDS);
         let options = NarrationOptions {
             explain: true,
             seed: None,

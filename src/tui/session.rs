@@ -7,8 +7,8 @@ use crate::conflict::Conflict;
 use crate::narration::{Beat, NarrationOptions, Narrator};
 use crate::roster::Roster;
 use crate::scenario::{self, Fight, Setup};
-use crate::search::{self, Search};
-use crate::solver::{Outcome, MAX_ROUNDS};
+use crate::search::Search;
+use crate::solver::{Outcome, Solver, MAX_ROUNDS};
 use crate::tui::app::{App, Key};
 use crate::tui::menu::{draw_menu, Menu, MenuKey};
 use crate::tui::view::{draw, draw_lineup, FightView, LineupView};
@@ -66,10 +66,10 @@ pub struct Solved {
     pub seed: u64,
 }
 
-/// Solves with `search::play(search, MAX_ROUNDS)`, then narrates
+/// Solves with `Solver::play(search, MAX_ROUNDS)`, then narrates
 /// with `explain: true` and `seed: Some(seed)`.
 pub fn solve(conflict: &Conflict, names: &[Vec<String>], seed: u64, search: Search) -> Solution {
-    let outcome = search::play(conflict, search, MAX_ROUNDS);
+    let outcome = Solver::play(conflict, search, MAX_ROUNDS);
     let options = NarrationOptions {
         explain: true,
         seed: Some(seed),

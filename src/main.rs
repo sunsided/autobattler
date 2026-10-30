@@ -4,7 +4,7 @@ use crate::narration::{BeatKind, NarrationOptions, Narrator};
 use crate::roster::Roster;
 use crate::scenario::{Fight, Preset};
 use crate::search::Search;
-use crate::solver::MAX_ROUNDS;
+use crate::solver::{Solver, MAX_ROUNDS};
 use crate::tui::menu::Menu;
 use crate::tui::TuiError;
 use std::io::{stdout, IsTerminal};
@@ -22,13 +22,9 @@ mod rng;
 mod roster;
 mod scenario;
 mod search;
-// The old engine only serves tests until it is removed.
-#[cfg_attr(not(test), allow(dead_code))]
 mod solver;
 mod tui;
 mod utility_value;
-// The old engine's value bookkeeping goes with it.
-#[cfg_attr(not(test), allow(dead_code))]
 mod value;
 mod weapon;
 
@@ -110,7 +106,7 @@ fn main() -> ExitCode {
     }
 
     let Fight { conflict, names } = scenario::build(options.setup, roster, seed);
-    let outcome = search::play(&conflict, search, MAX_ROUNDS);
+    let outcome = Solver::play(&conflict, search, MAX_ROUNDS);
     let narration = NarrationOptions {
         explain: options.explain,
         seed: Some(seed),
