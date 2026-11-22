@@ -15,6 +15,12 @@ pub fn order(state: &Conflict, moves: &[AppliedAction]) -> Vec<usize> {
     indices
 }
 
+/// Sorts `moves` in place, most promising first, in the same order as [`order`].
+#[cfg(test)]
+pub fn order_in_place(state: &Conflict, moves: &mut [AppliedAction]) {
+    moves.sort_by(|a, b| compare(&key(state, a), &key(state, b)));
+}
+
 /// How a move ranks: lower sorts first.
 enum Key {
     /// An attack that defeats its target.

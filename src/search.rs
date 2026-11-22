@@ -3,6 +3,8 @@
 mod agreement;
 mod alphabeta;
 pub mod bench;
+#[cfg(test)]
+mod engine;
 mod mtdf;
 mod ordering;
 mod positions;

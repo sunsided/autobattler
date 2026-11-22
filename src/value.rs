@@ -1,3 +1,4 @@
+use game_tree_search::Score;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::ops::Deref;
@@ -117,9 +118,69 @@ impl PartialEq for TerminalState {
     }
 }
 
+impl Eq for TerminalState {}
+
 impl PartialOrd for TerminalState {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.value().partial_cmp(&other.value())
+        Some(self.cmp(other))
+    }
+}
+
+/// Orders by value alone, like `==`, with `-0.0` equal to `0.0`: a retreat without damage
+/// scores `-0.0`. Values are never NaN.
+impl Ord for TerminalState {
+    fn cmp(&self, other: &Self) -> Ordering {
+        (self.value() + 0.0).total_cmp(&(other.value() + 0.0))
+    }
+}
+
+/// Lets game-tree-search compare, mirror and step scores; the kind of outcome is kept.
+impl Score for TerminalState {
+    fn negate(self) -> Self {
+        match self {
+            TerminalState::Win(value) => TerminalState::Defeat(-value),
+            TerminalState::Defeat(value) => TerminalState::Win(-value),
+            TerminalState::Remain(value) => TerminalState::Retreat(-value),
+            TerminalState::Retreat(value) => TerminalState::Remain(-value),
+            TerminalState::Heuristic(value) => TerminalState::Heuristic(-value),
+            TerminalState::OpenUnexplored(value) => TerminalState::OpenUnexplored(-value),
+        }
+    }
+
+    fn next_up(self) -> Self {
+        self.with_value(step_up(self.value()))
+    }
+
+    fn next_down(self) -> Self {
+        self.with_value(-step_up(-self.value()))
+    }
+}
+
+impl TerminalState {
+    /// The same kind of outcome with `value`.
+    const fn with_value(self, value: f32) -> Self {
+        match self {
+            TerminalState::Win(_) => TerminalState::Win(value),
+            TerminalState::Defeat(_) => TerminalState::Defeat(value),
+            TerminalState::Remain(_) => TerminalState::Remain(value),
+            TerminalState::Retreat(_) => TerminalState::Retreat(value),
+            TerminalState::Heuristic(_) => TerminalState::Heuristic(value),
+            TerminalState::OpenUnexplored(_) => TerminalState::OpenUnexplored(value),
+        }
+    }
+}
+
+/// The next `f32` above `value`, with `-0.0` taken as `0.0`; infinity stays.
+fn step_up(value: f32) -> f32 {
+    let value = value + 0.0;
+    if value == f32::INFINITY {
+        value
+    } else if value == 0.0 {
+        f32::from_bits(1)
+    } else if value > 0.0 {
+        f32::from_bits(value.to_bits() + 1)
+    } else {
+        f32::from_bits(value.to_bits() - 1)
     }
 }
 
