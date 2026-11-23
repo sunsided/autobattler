@@ -630,9 +630,9 @@ dependencies = [
 
 [[package]]
 name = "game-tree-search"
-version = "0.2.3"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e904ea5b53fd0d7267c03dfa1abc05c5c1b14e19c8fe82400f1a37443b1b9b60"
+checksum = "0d7f3bce21d2596e1267b5a525118385483570e00398576b28e7242bfd31a269"
 dependencies = [
  "hashbrown",
  "libm",
