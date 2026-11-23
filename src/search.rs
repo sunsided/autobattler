@@ -1,24 +1,18 @@
 //! A recursive alpha-beta search, in kinds that add speedups on top of each other.
 
 mod agreement;
-mod alphabeta;
 pub mod bench;
-mod mtdf;
+mod engine;
 mod ordering;
 mod positions;
+#[cfg(test)]
+mod properties;
 mod table;
 
 use crate::conflict::Conflict;
-use crate::solver::{
-    child_state, is_maximizing, moves, outcome_type, Alternative, Event, Outcome, OutcomeType,
-};
+use crate::solver::{outcome_type, Outcome};
 use crate::utility_value::get_utility;
-use alphabeta::{RootResult, Searcher};
-use log::trace;
-use mtdf::mtdf;
-use std::cmp::Ordering;
-use std::time::{Duration, Instant};
-use table::Table;
+use std::time::Duration;
 
 /// A search algorithm, from the plain alpha-beta search to the fastest.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -73,68 +67,16 @@ pub struct Search {
 
 /// Predicts the best line of play from `conflict`, in favor of the initiator.
 ///
-/// Deepens one action at a time up to `search.depth` (at least 1), stopping
-/// early once a win is found or the fight ends within the search. The
-/// evaluations, cuts and duration are summed over all steps; the depth
-/// statistics are those of the last step.
+/// Deepens one action at a time up to `search.depth` (at least 1) with game-tree-search,
+/// stopping early once a win is found or the fight ends within the search. The evaluations,
+/// cuts and duration are summed over all steps; the deepest ply is the deepest any step
+/// reached.
 ///
-/// Each kind adds its speedup on top of the ones before. The transposition
-/// table of [`SearchKind::Tt`] lives for the whole call. [`SearchKind::Mtdf`]
-/// guesses each step's score from the previous step's (0 for the first); its
-/// best line comes from a null-window search, so its timeline holds only the
-/// first event.
+/// Each kind adds its speedup on top of the ones before: the previous step's best line
+/// tried first, move ordering, a transposition table that lives for the whole call, and
+/// MTD(f), which starts each step from the previous step's score.
 pub fn engage(conflict: &Conflict, search: Search) -> Outcome {
-    let max_depth = search.depth.max(1);
-    let mut evaluations = 0;
-    let mut cuts = 0;
-    let mut search_duration = Duration::ZERO;
-    let mut depth = 1;
-    let mut pv = Vec::new();
-    let mut table = Table::new();
-    let mut guess = 0.0;
-    loop {
-        trace!("Increase search depth to {depth}/{max_depth}");
-        let start = Instant::now();
-        let mut searcher = Searcher::new(search.kind);
-        if search.kind >= SearchKind::Pv {
-            searcher.pv = std::mem::take(&mut pv);
-        }
-        if search.kind >= SearchKind::Tt {
-            searcher.table = std::mem::take(&mut table);
-        }
-        let root = if search.kind == SearchKind::Mtdf {
-            mtdf(&mut searcher, conflict, depth, guess)
-        } else {
-            searcher.root(conflict, depth, f32::NEG_INFINITY, f32::INFINITY)
-        };
-        table = std::mem::take(&mut searcher.table);
-        search_duration += start.elapsed();
-        evaluations += searcher.evaluations;
-        cuts += searcher.cuts;
-
-        let won = matches!(outcome_type(root.scored.score), OutcomeType::Win(_));
-        if won || !searcher.depth_limited || depth >= max_depth {
-            trace!("Iterative deepening finished at depth {depth}");
-            let outcome = outcome_type(root.scored.score);
-            let mut timeline = timeline(conflict, root);
-            if search.kind == SearchKind::Mtdf {
-                timeline.truncate(1);
-            }
-            return Outcome {
-                outcome,
-                timeline,
-                evaluations,
-                cuts,
-                search_duration,
-                max_visited_depth: searcher.max_visited_depth,
-                depth_limited: searcher.depth_limited,
-                search: search.kind,
-            };
-        }
-        pv = root.scored.line.iter().map(|step| step.index).collect();
-        guess = root.scored.score.value();
-        depth += 1;
-    }
+    engine::engage(conflict, search)
 }
 
 /// Plays the conflict to its end, searching anew before every action.
@@ -182,62 +124,6 @@ pub fn play(conflict: &Conflict, search: Search, max_rounds: usize) -> Outcome {
     }
 }
 
-/// Replays the root's best line from `conflict` as events.
-///
-/// The first event lists the other root actions tried, best first for the
-/// mover; later events list none.
-fn timeline(conflict: &Conflict, root: RootResult) -> Vec<Event> {
-    let mut alternatives = Vec::new();
-    let mut unexamined = 0;
-    if let Some(turn) = conflict.next_turn() {
-        let actor_is_initiator = is_maximizing(conflict, &turn);
-        alternatives = root
-            .explored
-            .into_iter()
-            .filter(|(index, _, _)| Some(*index) != root.best)
-            .map(|(_, action, scored)| Alternative {
-                action,
-                score: scored.score,
-                bound: scored.bound,
-            })
-            .collect();
-        // Stable, so ties keep the order they were tried in.
-        alternatives.sort_by(|a, b| {
-            let ordering = a.score.partial_cmp(&b.score).unwrap_or(Ordering::Equal);
-            if actor_is_initiator {
-                ordering.reverse()
-            } else {
-                ordering
-            }
-        });
-        if root.best.is_some() {
-            unexamined = moves(conflict, &turn).len() - (alternatives.len() + 1);
-        }
-    }
-
-    let mut events = Vec::with_capacity(root.scored.line.len());
-    let mut state = conflict.clone();
-    for step in root.scored.line {
-        let turn = state
-            .next_turn()
-            .expect("A best line only continues while the fight does");
-        let action = moves(&state, &turn).swap_remove(step.index);
-        state = child_state(&state, &turn, &action);
-        events.push(Event {
-            round: turn.round,
-            slot: turn.slot,
-            actor: turn.actor,
-            action,
-            state: state.clone(),
-            score: step.score,
-            bound: step.bound,
-            alternatives: std::mem::take(&mut alternatives),
-            unexamined: std::mem::take(&mut unexamined),
-        });
-    }
-    events
-}
-
 #[cfg(test)]
 mod tests {
     use super::agreement::agree;
@@ -247,7 +133,7 @@ mod tests {
     use crate::party_member::{Morale, PartyMember};
     use crate::roster::Roster;
     use crate::scenario::{self, Preset, Setup};
-    use crate::solver::outcome_type;
+    use crate::solver::{outcome_type, OutcomeType};
     use crate::utility_value::get_utility;
     use crate::weapon::{Fists, Stick, Weapon};
 
@@ -307,41 +193,6 @@ mod tests {
                 );
             }
         }
-    }
-
-    #[test]
-    fn mtdf_fallback_agrees_with_basic() {
-        let outcome = |conflict: &Conflict, root: RootResult| Outcome {
-            outcome: outcome_type(root.scored.score),
-            timeline: timeline(conflict, root),
-            evaluations: 0,
-            cuts: 0,
-            search_duration: Duration::ZERO,
-            max_visited_depth: 0,
-            depth_limited: false,
-            search: SearchKind::Basic,
-        };
-        let mut fell_back = Vec::new();
-        for p in bench_positions(6) {
-            let mut searcher = Searcher::new(SearchKind::Mtdf);
-            let mtdf = mtdf(&mut searcher, &p.conflict, 6, 0.0);
-            if searcher.fallbacks == 0 {
-                continue;
-            }
-            let basic = Searcher::new(SearchKind::Basic).root(
-                &p.conflict,
-                6,
-                f32::NEG_INFINITY,
-                f32::INFINITY,
-            );
-            let (basic, mtdf) = (outcome(&p.conflict, basic), outcome(&p.conflict, mtdf));
-            assert!(agree(&basic, &mtdf), "{}: fallback disagrees", p.label);
-            let turn = p.conflict.next_turn().expect("a search ran");
-            fell_back.push(is_maximizing(&p.conflict, &turn));
-        }
-        // Covers a root with the hero to move and one with a villain to move.
-        assert!(fell_back.contains(&true), "no maximizing root fell back");
-        assert!(fell_back.contains(&false), "no minimizing root fell back");
     }
 
     #[test]

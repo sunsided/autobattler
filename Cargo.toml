@@ -6,7 +6,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+game-tree-search = { version = "0.2.1", features = ["hashbrown"] }
 colored = "3.1.1"
 env_logger = "0.11.11"
 log = { version = "0.4.34", features = ["release_max_level_info"] }
 ratatui = "0.30.2"
+
+[dev-dependencies]
+proptest = "1.12"
