@@ -157,15 +157,14 @@ on. At the default depth of 10 it reads like this (times vary from run to run an
 ```text
 search bench · depth 10 · 37 positions
 kind     evaluations  ×basic    cuts     time  match
-basic         718408   1.00×  231946  153.0ms  37/37
-pv            547197   0.76×  163258  112.7ms  37/37
-ordered       440539   0.61×  156447  118.0ms  37/37
-tt            248644   0.35×   77682   98.4ms  37/37
-mtdf          239057   0.33×   77587  104.3ms  37/37
+basic         718408   1.00×  223950  203.5ms  37/37
+pv            547197   0.76×  157145  117.0ms  37/37
+ordered       440539   0.61×  153361  122.5ms  37/37
+tt            248646   0.35×   75980   97.7ms  37/37
+mtdf          242056   0.34×   75772   89.7ms  37/37
 ```
 
-`tt` is the default: over five runs its median time was within about 2% of `mtdf`'s, too close
-to call, so the simpler kind won.
+`tt` is the default: its time is too close to `mtdf`'s to call, so the simpler kind won.
 
 Every combatant searches anew on their turn, so a fight plays on until one side wins or escapes,
 however far that is beyond the lookahead. After 50 rounds it is called undecided.
@@ -235,6 +234,13 @@ heroes' point of view:
 Scaling the open and partial outcomes by a tenth makes a clean win worth far more than a position
 that merely looks good, so the heroes go for the kill when they can see it.
 
+**The search engine.** The searches come from the
+[game-tree-search](https://crates.io/crates/game-tree-search) crate: the fight is its `Game`
+([`src/search/engine.rs`](src/search/engine.rs)), and each `--search` kind is one of its
+searchers. The fight-specific parts stay here: the move ordering, the position key the
+transposition table stores fights under, and the rule that villains stop at the first line that
+beats the heroes.
+
 **Alpha-beta pruning.** The search runs depth-first and carries a window `[α, β]` down the
 tree: α is the score the heroes are already sure of elsewhere, β the score the villains are
 already sure of. As soon as a node's score falls outside that window, the side choosing above it
@@ -254,17 +260,17 @@ only partly known, which the log marks as `≥` or `≤`. The log shows the two 
 
 ## Things to do
 
-- [x] Regular minimax ([`src/search/alphabeta.rs`](src/search/alphabeta.rs)).
+- [x] Regular minimax (now from game-tree-search, see [`src/search/engine.rs`](src/search/engine.rs)).
 - [x] Rounds with speed-ordered initiative, one combatant per turn ([`src/action_iterator.rs`](src/action_iterator.rs)).
-- [x] Implement Alpha-Beta pruning ([`src/search/alphabeta.rs`](src/search/alphabeta.rs)).
+- [x] Implement Alpha-Beta pruning (game-tree-search's `alpha_beta`).
 - [x] Implement Iterative Deepening.
 - [x] Search the best line of the previous depth first when deepening (`--search pv`).
 - [x] Order moves by a heuristic (e.g. the blow that drops the weakest enemy first), so cuts come
   earlier (`--search ordered`, [`src/search/ordering.rs`](src/search/ordering.rs)).
 - [x] Cache positions already scored (a transposition table): hitting A then B and B then A meet
-  again (`--search tt`, [`src/search/table.rs`](src/search/table.rs)).
-- [x] Try MTD(f), the practical form of SSS\*, on top of that (`--search mtdf`,
-  [`src/search/mtdf.rs`](src/search/mtdf.rs)).
+  again (`--search tt`; the position key is in [`src/search/table.rs`](src/search/table.rs)).
+- [x] Try MTD(f), the practical form of SSS\*, on top of that (`--search mtdf`).
+- [x] Move the searches onto the [game-tree-search](https://crates.io/crates/game-tree-search) crate.
 
 A\* itself does not fit: it searches for the cheapest path when one side controls every move, and
 here the villains answer every move with their worst. With the villains fixed to a simple rule,

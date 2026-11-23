@@ -69,6 +69,7 @@ pub(crate) fn child_state(state: &Conflict, turn: &Turn, action: &AppliedAction)
 }
 
 /// The legal moves of the combatant acting in `turn`, in the fixed [`ActionIterator`] order.
+#[cfg(test)]
 pub(crate) fn moves(state: &Conflict, turn: &Turn) -> Vec<AppliedAction> {
     Solver::actions_for(state, turn).collect()
 }
@@ -107,7 +108,7 @@ impl Solver {
     /// Creates the iterator over all actions of the combatant acting in `turn`.
     ///
     /// Only the acting combatant is enumerated; member IDs equal their indices.
-    fn actions_for(state: &Conflict, turn: &Turn) -> ActionIterator {
+    pub(crate) fn actions_for(state: &Conflict, turn: &Turn) -> ActionIterator {
         let (current, opponent) = Self::parties_of(state, turn);
         let member_id = turn.actor.member_id;
         ActionIterator::new_in(

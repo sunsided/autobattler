@@ -1,12 +1,11 @@
-//! The transposition table: scores of positions already searched.
+//! The position key: a 128-bit hash of everything that decides how a conflict plays out,
+//! which game-tree-search's transposition table stores positions under.
 
 use crate::conflict::{Conflict, Parting};
 use crate::party::Party;
 use crate::party_member::{Morale, PartyMember};
-use crate::value::{Bound, TerminalState};
 use crate::weapon::Weapon;
-use std::collections::HashMap;
-use std::hash::{BuildHasherDefault, Hash, Hasher};
+use std::hash::{Hash, Hasher};
 
 /// Multipliers of the two halves of a key; odd, so no input bits are lost.
 const MULTIPLIERS: (u64, u64) = (0x9e37_79b9_7f4a_7c15, 0xc2b2_ae3d_27d4_eb4f);
@@ -76,30 +75,6 @@ impl Hasher for Mixer {
 
     fn write_usize(&mut self, value: usize) {
         self.add(value as u64);
-    }
-}
-
-/// Takes the first `u64` written as the hash: keys are already mixed.
-#[derive(Default)]
-struct PassThrough {
-    hash: u64,
-    set: bool,
-}
-
-impl Hasher for PassThrough {
-    fn finish(&self) -> u64 {
-        self.hash
-    }
-
-    fn write(&mut self, _bytes: &[u8]) {
-        unreachable!("keys are pairs of u64");
-    }
-
-    fn write_u64(&mut self, value: u64) {
-        if !self.set {
-            self.hash = value;
-            self.set = true;
-        }
     }
 }
 
@@ -179,103 +154,12 @@ fn hash_party(party: &Party, hasher: &mut impl Hasher) {
     }
 }
 
-/// What a search found out about a position.
-#[derive(Debug, Clone)]
-pub struct Entry {
-    /// The actions that were left to search below the position.
-    pub depth_left: usize,
-    /// The score, from the initiator's perspective.
-    pub score: TerminalState,
-    /// Whether [`score`](Entry::score) is exact or a bound due to pruning.
-    pub bound: Bound,
-    /// The index of the best action found, if any.
-    pub best: Option<usize>,
-    /// Whether the search below the position never ran out of depth.
-    pub complete: bool,
-    /// The fewest actions left at which the search below the position runs
-    /// into no depth limit: one more than the deepest ply it went below.
-    pub reach: usize,
-}
-
-/// Positions already searched, by [`position_key`], up to a fixed number.
-#[derive(Debug)]
-pub struct Table {
-    entries: HashMap<(u64, u64), Entry, BuildHasherDefault<PassThrough>>,
-    cap: usize,
-}
-
-impl Default for Table {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Table {
-    /// The most entries a table holds.
-    pub const CAP: usize = 1_000_000;
-
-    /// An empty table that holds up to [`CAP`](Table::CAP) entries.
-    pub fn new() -> Table {
-        Table {
-            entries: HashMap::default(),
-            cap: Self::CAP,
-        }
-    }
-
-    /// An empty table that holds up to `cap` entries.
-    #[cfg(test)]
-    pub fn with_cap(cap: usize) -> Table {
-        Table {
-            entries: HashMap::default(),
-            cap,
-        }
-    }
-
-    /// The entry stored for `key`, if any.
-    pub fn get(&self, key: (u64, u64)) -> Option<&Entry> {
-        self.entries.get(&key)
-    }
-
-    /// Stores `entry` for `key`, replacing an older one; once the table is
-    /// full, positions not in it yet are not stored.
-    pub fn put(&mut self, key: (u64, u64), entry: Entry) {
-        if self.entries.len() >= self.cap && !self.entries.contains_key(&key) {
-            return;
-        }
-        self.entries.insert(key, entry);
-    }
-
-    /// Whether `entry`'s score holds for a search with `depth_left` actions
-    /// left: it was searched as deep, or its search never ran out of depth
-    /// and still would not.
-    pub fn usable(entry: &Entry, depth_left: usize) -> bool {
-        entry.depth_left == depth_left || (entry.complete && depth_left >= entry.reach)
-    }
-
-    /// The number of entries.
-    #[cfg(test)]
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::conflict::Parting;
     use crate::roster::Roster;
     use crate::scenario::{self, Preset, Setup};
-
-    fn entry(depth_left: usize, complete: bool, reach: usize) -> Entry {
-        Entry {
-            depth_left,
-            score: TerminalState::Heuristic(1.0),
-            bound: Bound::Exact,
-            best: None,
-            complete,
-            reach,
-        }
-    }
 
     #[test]
     fn keys_differ_by_each_field() {
@@ -308,42 +192,5 @@ mod tests {
             change(&mut changed);
             assert_ne!(position_key(&changed), key, "{field}");
         }
-    }
-
-    #[test]
-    fn table_finds_what_it_stored() {
-        let mut table = Table::new();
-        for i in 0..100 {
-            table.put((splitmix(i), splitmix(!i)), entry(i as usize, false, 0));
-        }
-        assert_eq!(table.len(), 100);
-        for i in 0..100 {
-            let found = table.get((splitmix(i), splitmix(!i))).unwrap();
-            assert_eq!(found.depth_left, i as usize);
-        }
-        assert!(table.get((1, 2)).is_none());
-    }
-
-    #[test]
-    fn usable_rules() {
-        assert!(Table::usable(&entry(4, false, 3), 4));
-        assert!(!Table::usable(&entry(4, false, 3), 5));
-        assert!(Table::usable(&entry(4, true, 3), 3));
-        assert!(Table::usable(&entry(4, true, 3), 6));
-        assert!(!Table::usable(&entry(4, true, 3), 2));
-    }
-
-    #[test]
-    fn cap_stops_growth() {
-        let mut table = Table::with_cap(3);
-        for i in 0..5 {
-            table.put((i, i), entry(1, false, 0));
-        }
-        assert_eq!(table.len(), 3);
-
-        let stored = (0..5).find(|&i| table.get((i, i)).is_some()).unwrap();
-        table.put((stored, stored), entry(7, false, 0));
-        assert_eq!(table.len(), 3);
-        assert_eq!(table.get((stored, stored)).unwrap().depth_left, 7);
     }
 }

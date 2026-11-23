@@ -4,20 +4,12 @@ use crate::action::{Action, AppliedAction};
 use crate::conflict::Conflict;
 use std::cmp::Ordering;
 
-/// The indices into `moves`, most promising first.
+/// Sorts `moves` in place, most promising first.
 ///
 /// Lethal attacks come first, then the other attacks on the weakest targets
 /// (harder hitters first among equals), then fleeing, then retreating. The
 /// sort is stable, so ties keep their original order.
-pub fn order(state: &Conflict, moves: &[AppliedAction]) -> Vec<usize> {
-    let mut indices: Vec<usize> = (0..moves.len()).collect();
-    indices.sort_by(|&a, &b| compare(&key(state, &moves[a]), &key(state, &moves[b])));
-    indices
-}
-
-/// Sorts `moves` in place, most promising first, in the same order as [`order`].
-#[cfg(test)]
-pub fn order_in_place(state: &Conflict, moves: &mut [AppliedAction]) {
+pub fn order(state: &Conflict, moves: &mut [AppliedAction]) {
     moves.sort_by(|a, b| compare(&key(state, a), &key(state, b)));
 }
 
@@ -124,10 +116,11 @@ mod tests {
     /// The ordered moves of the hero's first turn, as (kind, target health, damage).
     fn ordered(state: &Conflict) -> Vec<(&'static str, f32, f32)> {
         let turn = state.next_turn().expect("a turn");
-        let moves = moves(state, &turn);
-        order(state, &moves)
-            .into_iter()
-            .map(|index| match &moves[index] {
+        let mut moves = moves(state, &turn);
+        order(state, &mut moves);
+        moves
+            .iter()
+            .map(|action| match action {
                 AppliedAction::Flee => ("flee", 0.0, 0.0),
                 AppliedAction::Retreat => ("retreat", 0.0, 0.0),
                 AppliedAction::Targeted(t) => {
@@ -164,15 +157,15 @@ mod tests {
     fn ties_keep_their_original_order() {
         let state = conflict(&[15.0, 15.0]);
         let turn = state.next_turn().expect("a turn");
-        let moves = moves(&state, &turn);
-        let order = order(&state, &moves);
+        let mut moves = moves(&state, &turn);
+        order(&state, &mut moves);
         // Both targets tie on health and damage, so the pairs stay in place.
-        let target = |index: usize| match &moves[index] {
+        let target = |action: &AppliedAction| match action {
             AppliedAction::Targeted(t) => t.target.member_id,
             other => panic!("expected an attack, got {other:?}"),
         };
-        let heavy: Vec<usize> = order[..2].iter().map(|&i| target(i)).collect();
-        let light: Vec<usize> = order[2..4].iter().map(|&i| target(i)).collect();
+        let heavy: Vec<usize> = moves[..2].iter().map(target).collect();
+        let light: Vec<usize> = moves[2..4].iter().map(target).collect();
         assert_eq!(heavy, [0, 1]);
         assert_eq!(light, [0, 1]);
     }
