@@ -5,6 +5,8 @@ pub mod bench;
 mod engine;
 mod ordering;
 mod positions;
+#[cfg(test)]
+mod properties;
 mod table;
 
 use crate::conflict::Conflict;
